@@ -1,0 +1,13 @@
+.gradle/
+build/
+out/
+classes/
+*.class
+*.jar
+!gradle/wrapper/gradle-wrapper.jar
+# Published plugin jars are tracked on purpose (see releases/README.md)
+!releases/*.jar
+.idea/
+*.iml
+.vscode/
+.run/

@@ -1,0 +1,30 @@
+name: Unbound
+version: '${version}'
+main: com.unbound.core.UnboundPlugin
+api-version: '26.2'
+description: Universal enchantment mechanics for the Unbound SMP.
+authors: [Unbound SMP]
+
+commands:
+  unbound:
+    description: Unbound enchantment administration.
+    usage: /unbound [reload|info|debug|enchant <player> <enchantment> <level> [force]]
+    permission: unbound.admin
+
+permissions:
+  unbound.admin:
+    description: Allows use of /unbound (reload, info, debug, enchant).
+    default: op
+    children:
+      unbound.reload: true
+      unbound.debug: true
+      unbound.enchant: true
+  unbound.reload:
+    description: Allows reloading the Unbound configuration.
+    default: op
+  unbound.debug:
+    description: Allows receiving and toggling Unbound debug output.
+    default: op
+  unbound.enchant:
+    description: Allows applying universal enchantments to any item.
+    default: op

@@ -1,0 +1,183 @@
+# =====================================================================
+#  Unbound - Universal Enchantments
+#  Enchantment behavior is adapted to the item and the action being
+#  performed. If an enchantment has no meaningful relationship with an
+#  item, nothing happens.
+#
+#  NOTE ON VANILLA OVERLAP: several vanilla enchantments already apply
+#  to any item that carries them at *use time* (vanilla only enforces
+#  compatibility at the enchanting table / anvil). Unbound therefore
+#  complements vanilla instead of duplicating it. Effects below are
+#  documented with what they actually do.
+# =====================================================================
+
+progression:
+  # When false, the vanilla enchanting table is blocked (progression
+  # control: Unbound enchantments should be administered or earned).
+  # Anvils are NOT affected.
+  enchanting-table:
+    enabled: false
+    deny-message: "&cThe enchanting table is disabled on this server."
+
+debug:
+  # Master switch for console debug logging (logger fine level).
+  enabled: false
+  # Players may still toggle personal debug with /unbound debug if they
+  # have unbound.debug, regardless of this switch.
+  allow-player-toggle: true
+  # Show processing times in debug output.
+  show-timing: true
+
+limits:
+  max-entities-affected-per-action: 32
+  max-blocks-affected-per-action: 64
+  max-projectiles-created-per-action: 16
+  max-effect-chain-depth: 8
+
+enchantments:
+  infinity:
+    enabled: true
+    max-level: 1
+    consumables:
+      enabled: true
+      # Restore (preserve) the consumed item after its normal effect ran:
+      # food, drinkable/splash potions, ender pearls, eggs, snowballs,
+      # XP bottles. Net effect: the item is never lost, never duplicated.
+      prevent-consumption: true
+      # Materials that are never restored (e.g. because vanilla leaves a
+      # desirable remainder: buckets -> empty bucket, potions -> bottle).
+      excluded-materials: [milk_bucket]
+    durability:
+      enabled: true
+      # Cancel ALL durability damage on items with Infinity.
+      # Takes precedence over Unbreaking (deterministic).
+      prevent-durability-loss: true
+
+  unbreaking:
+    enabled: true
+    max-level: 10
+    # Vanilla already skips durability damage with probability
+    # (60% + 4% per level) for ANY item carrying Unbreaking. This adds an
+    # EXTRA skip chance per damage event on top of that (0.0 = vanilla).
+    extra-skip-chance-per-level: 0.0
+
+  mending:
+    enabled: true
+    max-level: 1
+    # Unbound mending is universal: it scans held items, armor and
+    # inventory (in that order) for damaged items with Mending.
+    # Vanilla already repairs held item / armor; this covers the rest.
+    durability-per-xp: 2.0
+    # Prefer main hand, then off hand, then armor, then hotbar.
+    scan-hotbar: true
+
+  efficiency:
+    enabled: true
+    max-level: 10
+    scaling: 1.0
+    # Vanilla handles faster mining for actual tools (its mining
+    # efficiency works on any effective tool). Unbound additionally
+    # grants faster *attacks* on melee weapons via the attack speed
+    # attribute while the weapon is held.
+    attack-speed-bonus-per-level: 0.2
+
+  quick-charge:
+    enabled: true
+    max-level: 10
+    # Fraction removed from item cooldowns (ender pearls, shields, etc.)
+    # per level. Capped by quick-charge.max-cooldown-reduction.
+    use-time-reduction-per-level: 0.15
+    max-cooldown-reduction: 0.8
+    minimum-cooldown-ticks: 2
+
+  multishot:
+    enabled: true
+    max-level: 10
+    sword:
+      enabled: true
+      # Area attack around the victim: radius = base + radius-per-level
+      # * (level - 1). The direct target is hit by the original attack.
+      base-radius: 2.5
+      radius-per-level: 1.0
+      max-targets: 16
+      # Damage dealt to extra targets, as a fraction of the main hit
+      # (before armor).
+      damage-fraction: 1.0
+      # Push extra targets slightly away from the attacker.
+      knockback: true
+      knockback-strength: 0.4
+      # Skip tamed animals owned by the attacker and armor stands.
+      skip-own-pets: true
+      skip-armor-stands: true
+    # Bows: extra arrows are spawned in a spread on shoot. Crossbows keep
+    # vanilla Multishot. Tridents are excluded (they would duplicate the
+    # thrown trident item).
+    bow:
+      enabled: true
+      max-extra-arrows-per-level: 1
+      max-total-extra-arrows: 8
+      spread-degrees: 10.0
+
+  sharpness:
+    enabled: true
+    max-level: 10
+    # Damage bonus added to melee attacks. Vanilla adds
+    # 0.5 * level + 0.5 (i.e. 1.0 at level I, 3.0 at level V) to ANY melee
+    # attack with a Sharpness item (including items that should not accept
+    # it). Unbound removes vanilla's contribution and re-applies its own
+    # formula: bonus = base-bonus + bonus-per-level * (level - 1), so
+    # changing these values reshapes Sharpness without double counting.
+    # With the defaults (1.0 + 0.5 per extra level) this is exactly vanilla
+    # and the event is not touched at all.
+    base-bonus: 1.0
+    bonus-per-level: 0.5
+
+  power:
+    enabled: true
+    max-level: 10
+    # Bows and crossbows keep vanilla Power (it already applies to the
+    # arrows they shoot). For other projectiles Power adds flat damage
+    # per level on hit.
+    projectile-damage-per-level: 0.5
+    # Projectiles that receive the bonus (arrows/tridents excluded on
+    # purpose - vanilla already handles their enchant damage).
+    projectiles: [wind_charge, snowball, egg]
+
+  punch:
+    enabled: true
+    max-level: 10
+    # Arrows keep vanilla Punch. On melee attacks Punch now behaves like
+    # the Knockback enchantment (which vanilla never allows together
+    # with ranged items), pushing the victim away from the attacker.
+    melee:
+      enabled: true
+      velocity-per-level: 0.35
+    # Additional projectiles that receive punch knockback on hit.
+    projectiles: [wind_charge, snowball, egg]
+    projectile-velocity-per-level: 0.35
+
+  fortune:
+    enabled: true
+    max-level: 10
+    # Vanilla Fortune already multiplies ore drops for ANY breaking tool
+    # (it reads the held item). Unbound adds an extra, independent bonus
+    # roll on top of the vanilla result.
+    # chance = extra-chance-per-level * level (capped at 0.9) to
+    # duplicate each applicable drop stack once.
+    extra-chance-per-level: 0.25
+    # Blocks whose drops qualify. Ore tags are always included.
+    extra-blocks: []
+    # Drop materials that qualify for the bonus (raw resources, gems).
+    extra-drops: [raw_iron, raw_gold, raw_copper, coal, diamond, emerald,
+                  lapis_lazuli, redstone, nether_quartz, amethyst_shard,
+                  glowstone_dust, glow_berries, nether_wart, flint]
+
+  looting:
+    enabled: true
+    max-level: 10
+    # Vanilla Looting already boosts drops for ANY killing weapon. This
+    # adds an extra independent bonus: for each drop stack, chance =
+    # extra-chance-per-level * level (capped at 0.9) to duplicate it
+    # once. Rare drops can be boosted too via boost-rare-drops.
+    extra-chance-per-level: 0.25
+    boost-rare-drops: false
