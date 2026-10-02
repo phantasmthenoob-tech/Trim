@@ -285,14 +285,23 @@ enchantments:
     enabled: true
     require-thundering: false
 
-  # Riptide: projectiles launch with riptide speed at reduced damage;
-  # right-click on a melee item self-launches like a trident — without
-  # water (tridents keep vanilla behavior).
+  # Riptide: projectiles launch with riptide speed at reduced damage.
+  # Self-launch: HOLD right-click on a melee/plain item to charge (with
+  # escalating riptide sound + particle swirl), aim freely while charging
+  # to set the direction, release to launch. Power scales with charge.
+  # Tridents keep vanilla behavior.
   riptide:
     enabled: true
     max-level: 3
     projectile-damage-fraction: 0.30
     melee-works-without-water: true
+    # Ticks of holding right-click for a full charge (clients send use
+    # packets every ~4 ticks, so counts advance in ~4-tick steps).
+    charge-ticks: 12
+    # Ticks below which a quick click does NOT launch (no accidents).
+    min-charge-ticks: 4
+    # Silence for this many ticks while charging = release -> launch.
+    input-gap-ticks: 8
 
   # Impaling: strikes pierce a line of up to min(5, level) mobs.
   impaling:

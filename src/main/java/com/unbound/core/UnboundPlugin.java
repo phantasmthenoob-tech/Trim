@@ -2,15 +2,17 @@ package com.unbound.core;
 
 import com.unbound.core.command.UnboundCommand;
 import com.unbound.core.config.ConfigManager;
+import com.unbound.inspect.EnderChestCommand;
+import com.unbound.inspect.InspectHandler;
 import com.unbound.core.enchant.handlers.AttackHandler;
 import com.unbound.core.enchant.handlers.BlockBreakHandler;
 import com.unbound.core.enchant.handlers.BlockPlaceHandler;
 import com.unbound.core.enchant.handlers.EnchantingTableHandler;
 import com.unbound.core.enchant.handlers.ExperienceHandler;
-import com.unbound.core.enchant.handlers.InteractHandler;
 import com.unbound.core.enchant.handlers.ItemUseHandler;
 import com.unbound.core.enchant.handlers.PlayerLifecycleHandler;
 import com.unbound.core.enchant.handlers.ProjectileHandler;
+import com.unbound.core.enchant.handlers.RiptideChargeHandler;
 import com.unbound.core.enchant.handlers.ThornsHandler;
 import com.unbound.core.enchant.handlers.VeilHandler;
 import com.unbound.core.enchant.handlers.DurabilityHandler;
@@ -31,6 +33,7 @@ import org.bukkit.plugin.java.JavaPlugin;
 public final class UnboundPlugin extends JavaPlugin {
 
     private UnboundServices services;
+    private RiptideChargeHandler riptideChargeHandler;
 
     @Override
     public void onEnable() {
@@ -54,7 +57,16 @@ public final class UnboundPlugin extends JavaPlugin {
                 com.unbound.core.enchant.VeilType.PROJECTILE, services.veilState(),
                 com.unbound.core.enchant.VeilType.FALL, services.veilState())), this);
         pluginManager.registerEvents(new ThornsHandler(services), this);
-        pluginManager.registerEvents(new InteractHandler(services), this);
+        this.riptideChargeHandler = new RiptideChargeHandler(services);
+        pluginManager.registerEvents(this.riptideChargeHandler, this);
+        pluginManager.registerEvents(new InspectHandler(), this);
+
+        PluginCommand enderChest = getServer().getPluginCommand("enderchest");
+        if (enderChest != null) {
+            EnderChestCommand enderChestExecutor = new EnderChestCommand();
+            enderChest.setExecutor(enderChestExecutor);
+            enderChest.setTabCompleter(enderChestExecutor);
+        }
 
         PluginCommand command = getCommand("unbound");
         if (command != null) {
@@ -68,6 +80,9 @@ public final class UnboundPlugin extends JavaPlugin {
 
     @Override
     public void onDisable() {
+        if (riptideChargeHandler != null) {
+            riptideChargeHandler.stop();
+        }
         getLogger().info("Unbound disabled.");
     }
 }

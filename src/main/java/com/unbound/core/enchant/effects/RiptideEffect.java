@@ -36,19 +36,13 @@ public final class RiptideEffect implements EnchantmentEffect {
         if (!config.get().riptide().enabled()) {
             return false;
         }
-        if (context.action() == ActionType.PROJECTILE_SHOOT) {
-            return context.projectile().filter(p -> p instanceof AbstractArrow).isPresent();
-        }
-        return context.action() == ActionType.RIPTIDE_LAUNCH;
+        return context.action() == ActionType.PROJECTILE_SHOOT
+                && context.projectile().filter(p -> p instanceof AbstractArrow).isPresent();
     }
 
     @Override
     public void execute(EnchantmentContext context) {
-        if (context.action() == ActionType.PROJECTILE_SHOOT) {
-            boostProjectile(context);
-        } else {
-            selfLaunch(context);
-        }
+        boostProjectile(context);
     }
 
     private void boostProjectile(EnchantmentContext context) {
@@ -68,23 +62,5 @@ public final class RiptideEffect implements EnchantmentEffect {
         // Riptide speed multiplier on the projectile, damage nerf as configured.
         arrow.setVelocity(velocity.normalize().multiply(speed * (1.0 + strength)));
         arrow.setDamage(arrow.getDamage() * config.get().riptide().projectileDamageFraction());
-    }
-
-    private void selfLaunch(EnchantmentContext context) {
-        org.bukkit.entity.Player player = context.player().orElse(null);
-        if (player == null || player.isInsideVehicle() || player.isGliding()) {
-            return;
-        }
-        double strength = EffectMath.riptideLaunchStrength(context.level());
-        if (strength <= 0) {
-            return;
-        }
-        // Same mechanic as vanilla trident riptide: launch in look direction,
-        // spin animation included via the riptide velocity profile.
-        Vector direction = player.getLocation().getDirection().normalize();
-        Vector velocity = direction.clone().multiply(strength);
-        velocity.setY(Math.max(velocity.getY(), strength * 0.4));
-        player.setVelocity(velocity);
-        player.setFallDistance(0.0f);
     }
 }

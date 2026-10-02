@@ -239,8 +239,8 @@ public final class VanillaDefinitions {
                     .actions(ActionType.MELEE_IMPACT, ActionType.PROJECTILE_IMPACT)
                     .effect(new ChannelingEffect(config));
             case "riptide" -> builder
-                    .description("Projectiles launch with riptide speed at reduced damage; melee right-click self-launches like a trident (no water needed off-trident).")
-                    .actions(ActionType.PROJECTILE_SHOOT, ActionType.RIPTIDE_LAUNCH)
+                    .description("Projectiles launch with riptide speed at reduced damage; holding right-click on an item charges a self-launch (aim to steer, release to fly, no water needed off-trident).")
+                    .actions(ActionType.PROJECTILE_SHOOT)
                     .effect(new RiptideEffect(config));
             case "impaling" -> builder
                     .description("Strikes pierce a line of up to 5 mobs depending on level.")

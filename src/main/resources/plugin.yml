@@ -10,6 +10,9 @@ commands:
     description: Unbound enchantment administration.
     usage: /unbound [reload|info|debug|enchant <player> <enchantment> <level> [force]]
     permission: unbound.admin
+  enderchest:
+    description: Open your ender chest, or edit another player's (/enderchest edit <username>).
+    usage: /enderchest [edit <username>]
 
 permissions:
   unbound.admin:
@@ -27,4 +30,10 @@ permissions:
     default: op
   unbound.enchant:
     description: Allows applying universal enchantments to any item.
+    default: op
+  unbound.inspect:
+    description: Allows sneak-right-click opening of another player's inventory.
+    default: op
+  unbound.enderchest:
+    description: Allows editing another player's ender chest via /enderchest edit.
     default: op

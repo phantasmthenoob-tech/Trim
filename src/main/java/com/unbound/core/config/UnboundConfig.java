@@ -93,7 +93,8 @@ public final class UnboundConfig {
     }
 
     public record RiptideSettings(boolean enabled, double projectileDamageFraction,
-                                  boolean meleeWorksWithoutWater) {
+                                  boolean meleeWorksWithoutWater, int chargeTicks,
+                                  int minChargeTicks, int inputGapTicks) {
     }
 
     public record ImpalingSettings(boolean enabled, int maxTargets, double damageFraction) {

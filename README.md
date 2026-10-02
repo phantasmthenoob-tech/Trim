@@ -77,7 +77,7 @@ invalid values fall back to documented defaults instead of bricking the plugin.
 | **Silk Touch** | Killing a player yields their head as a bonus drop. |
 | **Luck of the Sea** | Luck while the item is held (5s refresh on held-item changes; fades shortly after switching away). |
 | **Channeling** | Any strike — melee or projectile — summons lightning (thunderstorm requirement configurable). |
-| **Riptide** | Projectiles launch with riptide speed at reduced damage (default 30% kept); right-click on a melee item self-launches like a trident — without water. Tridents keep vanilla. |
+| **Riptide** | Projectiles launch with riptide speed at reduced damage (default 30% kept). **Self-launch**: hold right-click on any item to charge — escalating riptide sound + particle swirl animation, aim freely while charging to set the direction, release to launch with charge-scaled power (no water needed off-trident; tridents keep vanilla). Quick clicks under `min-charge-ticks` never launch. |
 | **Impaling** | Strikes pierce a line of up to `min(5, level)` mobs. |
 | **Breach** | Projectile hits pierce a fraction of the victim's armor (16% per level, capped at 80%). |
 | **Piercing** | Hits go through shields: the shield is disabled briefly (mace-smash style) and the damage flows. |
@@ -104,10 +104,15 @@ stays a preserve mechanic and can never duplicate wealth.
 /unbound enchant <player> <key> <level> [force]  apply any enchantment to the held item,
                                                  bypassing vanilla compatibility; max level is
                                                  the configured one unless `force` is given
+/enderchest                                      open your ender chest (vanilla parity)
+/enderchest edit <username>                      open a player's live ender chest as a container
 ```
 
 Permissions: `unbound.admin` (base), `unbound.reload`, `unbound.debug`, `unbound.enchant`
-(children of admin, default op).
+(children of admin, default op), plus **admin inspection**: `unbound.inspect` (sneak-right-click
+a player to open their live inventory — armor, main hand, off hand and storage are real slots,
+so taking/removing/replacing edits the target's actual inventory) and `unbound.enderchest`
+(edit another player's ender chest). Both default to op.
 
 ## Building
 
