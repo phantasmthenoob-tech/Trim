@@ -24,6 +24,8 @@ public enum ActionType {
     ENTITY_DEATH,
     /** A block was broken and produced drops. */
     BLOCK_BREAK,
+    /** A player placed a block (Infinity block restore). */
+    BLOCK_PLACE,
     /** A player began damaging a block (charge/use start). */
     BLOCK_DAMAGE_START,
     /** A player finished consuming food, a potion, milk, etc. */
@@ -32,6 +34,12 @@ public enum ActionType {
     ITEM_LAUNCH,
     /** A player item entered cooldown. */
     ITEM_COOLDOWN,
+    /** Thorns swept nearby enemies after the wearer was hit. */
+    THORNS_TRIGGER,
+    /** A player right-clicked a Riptide item to self-launch. */
+    RIPTIDE_LAUNCH,
+    /** A player died (totem resurrection, effects cleanup). */
+    PLAYER_DEATH,
     /** An item took durability damage. */
     DURABILITY_DAMAGE,
     /** A player gained experience (orbs, fishing, bottles...). */

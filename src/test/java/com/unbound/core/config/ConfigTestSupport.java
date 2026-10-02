@@ -48,6 +48,18 @@ public final class ConfigTestSupport {
                 base.power(),
                 base.punch(),
                 base.fortune(),
-                base.looting());
+                base.looting(),
+                base.veil(),
+                base.ignite(),
+                base.sweep(),
+                base.thorns(),
+                base.silkTouch(),
+                base.luck(),
+                base.channeling(),
+                base.riptide(),
+                base.impaling(),
+                base.breach(),
+                base.piercing(),
+                base.windBurst());
     }
 }

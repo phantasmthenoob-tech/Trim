@@ -47,7 +47,15 @@ public final class InfinityEffect implements EnchantmentEffect {
         if (context.action() != ActionType.ITEM_CONSUME && context.action() != ActionType.ITEM_LAUNCH) {
             return false;
         }
+        if (context.action() == ActionType.BLOCK_PLACE) {
+            return settings.restoreBlocks() && isRestorableBlock(context);
+        }
         if (!settings.consumablesEnabled() || !settings.preventConsumption()) {
+            return false;
+        }
+        // Totems are consumed on death, not through the normal use flow; they
+        // are handled by the dedicated resurrection path in ItemUseHandler.
+        if (context.itemCapabilities().contains(ItemCapability.TOTEM)) {
             return false;
         }
         return context.itemCapabilities().contains(ItemCapability.CONSUMABLE)
@@ -58,6 +66,10 @@ public final class InfinityEffect implements EnchantmentEffect {
     public void execute(EnchantmentContext context) {
         if (context.action() == ActionType.DURABILITY_DAMAGE) {
             context.cancelAction();
+            return;
+        }
+        if (context.action() == ActionType.BLOCK_PLACE) {
+            restorePlacedBlock(context);
             return;
         }
         Player player = context.player().orElse(null);
@@ -84,5 +96,45 @@ public final class InfinityEffect implements EnchantmentEffect {
             leftover.values().forEach(rest ->
                     player.getWorld().dropItemNaturally(player.getLocation(), rest));
         });
+    }
+
+    /**
+     * Block restore: one tick after placing, give the block back IF the
+     * placed block is still exactly what was placed (breaking it first means
+     * no restore — this is a preserve, never a duplication machine), and the
+     * material is not on the excluded (valuable/container) list.
+     */
+    private void restorePlacedBlock(EnchantmentContext context) {
+        Player player = context.player().orElse(null);
+        org.bukkit.block.Block block = context.block().orElse(null);
+        ItemStack placed = context.item();
+        if (player == null || block == null || placed == null
+                || player.getGameMode() == GameMode.CREATIVE) {
+            return;
+        }
+        UnboundConfig.InfinitySettings settings = config.get().infinity();
+        Material type = placed.getType();
+        if (settings.excludedBlocks().contains(type.name().toLowerCase(java.util.Locale.ROOT))) {
+            return;
+        }
+        ItemStack restore = placed.clone();
+        restore.setAmount(1);
+        Bukkit.getScheduler().runTask(plugin, () -> {
+            if (!player.isOnline()) {
+                return;
+            }
+            // The block must still be the placed type (not broken/replaced).
+            if (block.getType() != type) {
+                return;
+            }
+            var leftover = player.getInventory().addItem(restore);
+            leftover.values().forEach(rest ->
+                    player.getWorld().dropItemNaturally(player.getLocation(), rest));
+        });
+    }
+
+    static boolean isRestorableBlock(EnchantmentContext context) {
+        ItemStack item = context.item();
+        return item != null && !item.getType().isAir() && item.getType().isBlock();
     }
 }

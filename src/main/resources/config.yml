@@ -52,6 +52,28 @@ enchantments:
       # Cancel ALL durability damage on items with Infinity.
       # Takes precedence over Unbreaking (deterministic).
       prevent-durability-loss: true
+    # Restore a totem of undying to its original hand one tick after it
+    # resurrects the holder (preserve, never duplicate). Requires Infinity
+    # on the totem itself.
+    restore-totems: true
+    blocks:
+      # Restore cheap placed blocks (dirt, cobblestone, cobwebs...) one tick
+      # after placing, while the placed block is still there. Valuable or
+      # container blocks are never restored (see the excluded list) - this
+      # must never be a duplication machine for wealth.
+      restore: true
+      excluded: [diamond_block, emerald_block, gold_block, iron_block,
+                 netherite_block, netherite_ingot, ancient_debris, beacon,
+                 conduit, ender_chest, enchanting_table, jukebox, lodestone,
+                 respawn_anchor, anvil, chipped_anvil, damaged_anvil,
+                 chest, trapped_chest, barrel, furnace, blast_furnace,
+                 smoker, dispenser, dropper, hopper, shulker_box,
+                 white_shulker_box, orange_shulker_box, magenta_shulker_box,
+                 light_blue_shulker_box, yellow_shulker_box, lime_shulker_box,
+                 pink_shulker_box, gray_shulker_box, light_gray_shulker_box,
+                 cyan_shulker_box, purple_shulker_box, blue_shulker_box,
+                 brown_shulker_box, green_shulker_box, red_shulker_box,
+                 black_shulker_box, spawner, bee_nest, beehive]
 
   unbreaking:
     enabled: true
@@ -181,3 +203,118 @@ enchantments:
     # once. Rare drops can be boosted too via boost-rare-drops.
     extra-chance-per-level: 0.25
     boost-rare-drops: false
+
+  # =====================================================================
+  #  1.1 interpretations — the protection family, fire combos, sweeps and
+  #  projectile/melee cross-overs.
+  # =====================================================================
+
+  # The five protection enchantments, as timed veils (see veil tuning below).
+  protection:
+    enabled: true
+    max-level: 4
+  fire-protection:
+    enabled: true
+    max-level: 4
+  blast-protection:
+    enabled: true
+    max-level: 4
+  projectile-protection:
+    enabled: true
+    max-level: 4
+  feather-falling:
+    enabled: true
+    max-level: 4
+
+  # Shared veil tuning: the timed "extra armor piece" granted by the five
+  # protection enchantments while the item is held/worn. Duration scales
+  # with level (2s + 1s per level) and is capped here.
+  veil:
+    enabled: true
+    max-duration-seconds: 20.0
+
+  # Fire Aspect <-> Flame cross-over. Fire Aspect also ignites projectile
+  # hits; Flame also ignites melee hits. When BOTH enchantments contributed
+  # to a hit, the victim keeps burning until they enter water (capped at
+  # max-burn-seconds for safety).
+  fire-aspect:
+    enabled: true
+    max-level: 2
+  flame:
+    enabled: true
+    max-level: 1
+  ignite:
+    enabled: true
+    fire-aspect-on-projectiles: true
+    flame-on-melee: true
+    infinite-combo: true
+    max-burn-seconds: 20
+    projectiles: [snowball, egg, wind_charge]
+
+  # Sweeping Edge: real area sweep on melee hits AND projectile hits.
+  sweeping-edge:
+    enabled: true
+    max-level: 3
+    max-targets: 8
+    damage-fraction: 0.75
+    knockback: true
+    knockback-strength: 0.3
+
+  # Thorns on armor: instead of poking the attacker, the WEARER sweeps
+  # nearby enemies (armor version of Sweeping Edge).
+  thorns:
+    enabled: true
+    max-level: 3
+    max-targets: 4
+    damage-fraction: 0.5
+
+  # Silk Touch: killing a player yields their head as a bonus drop.
+  silk-touch:
+    enabled: true
+
+  # Luck of the Sea: Luck while the item is held, refreshed on held-item
+  # changes, gone shortly after switching away.
+  luck-of-the-sea:
+    enabled: true
+    max-level: 5
+    seconds: 5
+
+  # Channeling: any strike summons lightning (thunderstorm required by
+  # default, like vanilla).
+  channeling:
+    enabled: true
+    require-thundering: false
+
+  # Riptide: projectiles launch with riptide speed at reduced damage;
+  # right-click on a melee item self-launches like a trident — without
+  # water (tridents keep vanilla behavior).
+  riptide:
+    enabled: true
+    max-level: 3
+    projectile-damage-fraction: 0.30
+    melee-works-without-water: true
+
+  # Impaling: strikes pierce a line of up to min(5, level) mobs.
+  impaling:
+    enabled: true
+    max-level: 5
+    max-targets: 5
+    damage-fraction: 0.8
+
+  # Breach: projectile hits pierce a fraction of the victim's armor.
+  breach:
+    enabled: true
+    max-level: 4
+    armor-fraction-per-level: 0.16
+
+  # Piercing: hits go through shields (shield disabled briefly, damage flows).
+  piercing:
+    enabled: true
+    max-level: 4
+    shield-break-ticks: 100
+
+  # Wind Burst: impacts burst into wind charges (mace smash on anything).
+  wind-burst:
+    enabled: true
+    max-level: 3
+    max-charges: 12

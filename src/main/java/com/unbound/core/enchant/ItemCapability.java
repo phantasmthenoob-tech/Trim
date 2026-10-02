@@ -33,7 +33,9 @@ public enum ItemCapability {
     /** Item is a fishing rod. */
     FISHING_ROD,
     /** Item is a shield. */
-    SHIELD;
+    SHIELD,
+    /** Item is a totem of undying (consumed on death). */
+    TOTEM;
 
     public static Set<ItemCapability> of(ItemCapability... capabilities) {
         return capabilities.length == 0 ? EnumSet.noneOf(ItemCapability.class) : EnumSet.copyOf(java.util.Arrays.asList(capabilities));

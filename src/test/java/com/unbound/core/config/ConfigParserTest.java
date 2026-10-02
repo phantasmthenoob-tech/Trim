@@ -20,6 +20,10 @@ class ConfigParserTest {
         assertEquals(DefaultConfig.LIMITS, config.limits());
         assertTrue(config.infinity().preventConsumption());
         assertTrue(config.infinity().preventDurabilityLoss());
+        assertTrue(config.infinity().restoreTotems());
+        assertTrue(config.infinity().restoreBlocks());
+        assertFalse(config.infinity().excludedBlocks().contains("cobweb"));
+        assertTrue(config.infinity().excludedBlocks().contains("diamond_block"));
         assertEquals(0.0, config.unbreaking().extraSkipChancePerLevel());
         assertEquals(2.0, config.mending().durabilityPerXp());
         assertEquals(1.0, config.efficiency().scaling());

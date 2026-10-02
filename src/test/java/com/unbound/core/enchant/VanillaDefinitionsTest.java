@@ -42,7 +42,7 @@ class VanillaDefinitionsTest {
         UnboundConfig config = defaults.get();
         for (String key : DefaultConfig.IMPLEMENTED_KEYS) {
             EnchantmentDefinition definition = VanillaDefinitions.build(key, null,
-                    config.toggleFor(key), defaults, null, modifierKey);
+                    config.toggleFor(key), defaults, null, modifierKey, null);
             assertNotNull(definition.effect(), key + " must have an effect implementation");
             assertFalse(definition.supportedActions().isEmpty(), key + " must support actions");
             assertTrue(definition.enabled(), key + " enabled by default");
@@ -54,7 +54,7 @@ class VanillaDefinitionsTest {
         UnboundConfig config = defaults.get();
         for (String key : DefaultConfig.PLACEHOLDER_KEYS) {
             EnchantmentDefinition definition = VanillaDefinitions.build(key, null,
-                    config.toggleFor(key), defaults, null, modifierKey);
+                    config.toggleFor(key), defaults, null, modifierKey, null);
             assertTrue(definition.effect() == null, key + " is a pass-through: no invented effect");
             assertTrue(definition.supportedActions().isEmpty(), key + " must not dispatch");
         }
@@ -63,7 +63,7 @@ class VanillaDefinitionsTest {
     @Test
     void disabledToggleDisablesTheBuiltDefinition() {
         EnchantmentDefinition definition = VanillaDefinitions.build("sharpness", null,
-                new UnboundConfig.EnchToggle(false, 3), defaults, null, modifierKey);
+                new UnboundConfig.EnchToggle(false, 3), defaults, null, modifierKey, null);
         assertFalse(definition.enabled());
         assertEquals(3, definition.maxLevel());
     }

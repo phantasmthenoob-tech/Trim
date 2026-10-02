@@ -30,6 +30,7 @@ public final class UnboundServices {
     private final CapabilityScanner scanner = new CapabilityScanner();
     private final ApplicabilityResolver resolver = new ApplicabilityResolver();
     private final BukkitDebugService debug;
+    private final com.unbound.core.enchant.VeilState veilState = new com.unbound.core.enchant.VeilState();
     private volatile UnboundConfig config;
     private volatile UniversalEnchantmentEngine engine;
     private volatile EffectDispatcher dispatcher;
@@ -48,7 +49,7 @@ public final class UnboundServices {
         this.config = loaded;
         UniversalEnchantmentEngine engine = new UniversalEnchantmentEngine(logger);
         VanillaDefinitions.registerAll(engine, this::config, plugin,
-                new NamespacedKey(plugin, "efficiency_attack_speed"), logger);
+                new NamespacedKey(plugin, "efficiency_attack_speed"), veilState, logger);
         this.engine = engine;
         this.dispatcher = new EffectDispatcher(engine, resolver, loaded.limits(), debug, logger);
         logger.info(() -> "[Unbound] Loaded " + engine.size() + " enchantment definitions ("
@@ -89,5 +90,10 @@ public final class UnboundServices {
 
     public BukkitDebugService debug() {
         return debug;
+    }
+
+    /** The shared veil store (written by VeilEffects, read by VeilHandler). */
+    public com.unbound.core.enchant.VeilState veilState() {
+        return veilState;
     }
 }

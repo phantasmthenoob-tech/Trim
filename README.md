@@ -69,10 +69,31 @@ invalid values fall back to documented defaults instead of bricking the plugin.
 | **Quick Charge** | Reduces item cooldowns (ender pearls, chorus fruit, ...). Crossbows keep vanilla reload. |
 | **Fortune** | Vanilla Fortune already multiplies ore drops for any tool; Unbound adds an additive bonus roll on qualifying drops (chance per level, capped duplicates per action). |
 | **Looting** | Same additive-roll approach for mob drops; rare drops only when `boost-rare-drops` is on. |
+| **Protection / Fire / Blast / Projectile Protection / Feather Falling** | **Veils**: while the item is held/worn, combat involvement grants a timed "veil" (2s + 1s per level) that reduces the family's damage like an extra armor piece of that protection level. |
+| **Fire Aspect** | Now also ignites targets hit by the holder's projectiles; with **Flame** on the same item, victims keep burning until they enter water. |
+| **Flame** | Now also ignites melee targets; see Fire Aspect combo. |
+| **Sweeping Edge** | A real area sweep on melee hits *and* projectile hits (nearest-first, budget-capped selection). |
+| **Thorns** | Wearing it sweeps nearby enemies when you are hit (armor version of Sweeping Edge). |
+| **Silk Touch** | Killing a player yields their head as a bonus drop. |
+| **Luck of the Sea** | Luck while the item is held (5s refresh on held-item changes; fades shortly after switching away). |
+| **Channeling** | Any strike — melee or projectile — summons lightning (thunderstorm requirement configurable). |
+| **Riptide** | Projectiles launch with riptide speed at reduced damage (default 30% kept); right-click on a melee item self-launches like a trident — without water. Tridents keep vanilla. |
+| **Impaling** | Strikes pierce a line of up to `min(5, level)` mobs. |
+| **Breach** | Projectile hits pierce a fraction of the victim's armor (16% per level, capped at 80%). |
+| **Piercing** | Hits go through shields: the shield is disabled briefly (mace-smash style) and the damage flows. |
+| **Wind Burst** | Impacts burst into a ring of wind charges (mace smash on anything), guard-budgeted. |
 
-All remaining vanilla enchantments (~28, including curses) are registered as **honest
-pass-through** definitions: they show in `/unbound info`, can be applied anywhere with
-`/unbound enchant`, and no invented behavior is attached to them yet.
+All remaining vanilla enchantments (Respiration, Aqua Affinity, Depth Strider, Frost Walker,
+the curses, Knockback, Lure, Loyalty, Soul Speed, Swift Sneak, Density) are registered as
+**honest pass-through** definitions: they show in `/unbound info`, can be applied anywhere
+with `/unbound enchant`, and no invented behavior is attached to them yet.
+
+**Infinity also preserves Totems of Undying** (restored to the original hand after
+resurrection) and **cheap placed blocks** (dirt, cobblestone, cobwebs, ...): the block is
+returned one tick after placing *only if the placed block is still there* — valuable blocks
+(netherite/diamond/gold/iron/emerald, ancient debris, beacons, ...) and containers (chests,
+shulkers, furnaces, hoppers, ...) are excluded in `infinity.blocks.excluded`, so Infinity
+stays a preserve mechanic and can never duplicate wealth.
 
 ## Commands
 

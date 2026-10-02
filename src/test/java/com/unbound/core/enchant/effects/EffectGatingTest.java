@@ -48,7 +48,7 @@ class EffectGatingTest {
 
         // Durability disabled in config still allows the consumable path.
         Supplier<UnboundConfig> durabilityOff = () -> ConfigTestSupport.configWithInfinity(
-                new UnboundConfig.InfinitySettings(true, true, true, Set.of(), false, false));
+                new UnboundConfig.InfinitySettings(true, true, true, Set.of(), false, false, true, true, Set.of()));
         assertTrue(new InfinityEffect(durabilityOff, null).applies(context(ActionType.ITEM_CONSUME,
                 ItemCapability.of(ItemCapability.CONSUMABLE))));
 
@@ -62,13 +62,13 @@ class EffectGatingTest {
 
         // Consumables disabled in config -> no restoration.
         Supplier<UnboundConfig> consumablesOff = () -> ConfigTestSupport.configWithInfinity(
-                new UnboundConfig.InfinitySettings(true, false, false, Set.of(), true, true));
+                new UnboundConfig.InfinitySettings(true, false, false, Set.of(), true, true, true, true, Set.of()));
         assertFalse(new InfinityEffect(consumablesOff, null).applies(context(ActionType.ITEM_CONSUME,
                 ItemCapability.of(ItemCapability.CONSUMABLE))));
 
         // prevent-consumption off -> nothing to do either.
         Supplier<UnboundConfig> noPrevent = () -> ConfigTestSupport.configWithInfinity(
-                new UnboundConfig.InfinitySettings(true, true, false, Set.of(), true, true));
+                new UnboundConfig.InfinitySettings(true, true, false, Set.of(), true, true, true, true, Set.of()));
         assertFalse(new InfinityEffect(noPrevent, null).applies(context(ActionType.ITEM_LAUNCH,
                 ItemCapability.of(ItemCapability.THROWABLE))));
     }
@@ -80,12 +80,12 @@ class EffectGatingTest {
                 ItemCapability.of(ItemCapability.DURABLE))));
 
         Supplier<UnboundConfig> durabilityOff = () -> ConfigTestSupport.configWithInfinity(
-                new UnboundConfig.InfinitySettings(true, true, true, Set.of(), false, true));
+                new UnboundConfig.InfinitySettings(true, true, true, Set.of(), false, true, true, true, Set.of()));
         assertFalse(new InfinityEffect(durabilityOff, null).applies(context(ActionType.DURABILITY_DAMAGE,
                 ItemCapability.of(ItemCapability.DURABLE))));
 
         Supplier<UnboundConfig> preventOff = () -> ConfigTestSupport.configWithInfinity(
-                new UnboundConfig.InfinitySettings(true, true, true, Set.of(), true, false));
+                new UnboundConfig.InfinitySettings(true, true, true, Set.of(), true, false, true, true, Set.of()));
         assertFalse(new InfinityEffect(preventOff, null).applies(context(ActionType.DURABILITY_DAMAGE,
                 ItemCapability.of(ItemCapability.DURABLE))));
     }

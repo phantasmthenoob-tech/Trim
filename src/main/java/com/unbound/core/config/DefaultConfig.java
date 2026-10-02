@@ -27,16 +27,18 @@ public final class DefaultConfig {
     /** Enchantment keys Unbound ships behavior for, in display order. */
     public static final List<String> IMPLEMENTED_KEYS = List.of(
             "infinity", "unbreaking", "mending", "efficiency", "quick-charge",
-            "multishot", "sharpness", "power", "punch", "fortune", "looting");
+            "multishot", "sharpness", "power", "punch", "fortune", "looting",
+            // 1.1 interpretations:
+            "protection", "fire-protection", "blast-protection", "projectile-protection",
+            "feather-falling", "fire-aspect", "flame", "sweeping-edge", "thorns",
+            "silk-touch", "luck-of-the-sea", "channeling", "riptide", "impaling",
+            "breach", "piercing", "wind-burst");
 
     /** Enchantments registered as pass-through placeholders for now. */
     public static final List<String> PLACEHOLDER_KEYS = List.of(
-            "protection", "fire-protection", "blast-protection", "projectile-protection",
-            "feather-falling", "respiration", "aqua-affinity", "thorns", "depth-strider",
-            "frost-walker", "curse-of-binding", "curse-of-vanishing", "fire-aspect",
-            "knockback", "sweeping-edge", "silk-touch", "flame", "luck-of-the-sea", "lure",
-            "channeling", "loyalty", "riptide", "impaling", "soul-speed", "swift-sneak",
-            "breach", "density", "wind-burst");
+            "respiration", "aqua-affinity", "depth-strider",
+            "frost-walker", "curse-of-binding", "curse-of-vanishing",
+            "knockback", "lure", "loyalty", "soul-speed", "swift-sneak", "density");
 
     private DefaultConfig() {
     }
@@ -59,7 +61,8 @@ public final class DefaultConfig {
         // Enchantment toggles, mirroring the shipped config.yml exactly:
         // every implemented key with its enabled state and level cap.
         Map<String, Object> enchantments = new LinkedHashMap<>();
-        enchantments.put("infinity", Map.of("enabled", true, "max-level", 1));
+        enchantments.put("infinity", Map.of("enabled", true, "max-level", 1,
+                "restore-totems", true, "blocks", Map.of("restore", true)));
         enchantments.put("unbreaking", Map.of("enabled", true, "max-level", 10));
         enchantments.put("mending", Map.of("enabled", true, "max-level", 1));
         enchantments.put("efficiency", Map.of("enabled", true, "max-level", 10));
@@ -70,6 +73,24 @@ public final class DefaultConfig {
         enchantments.put("punch", Map.of("enabled", true, "max-level", 10));
         enchantments.put("fortune", Map.of("enabled", true, "max-level", 10));
         enchantments.put("looting", Map.of("enabled", true, "max-level", 10));
+        // 1.1 interpretation toggles (mirroring shipped config.yml):
+        enchantments.put("protection", Map.of("enabled", true, "max-level", 4));
+        enchantments.put("fire-protection", Map.of("enabled", true, "max-level", 4));
+        enchantments.put("blast-protection", Map.of("enabled", true, "max-level", 4));
+        enchantments.put("projectile-protection", Map.of("enabled", true, "max-level", 4));
+        enchantments.put("feather-falling", Map.of("enabled", true, "max-level", 4));
+        enchantments.put("fire-aspect", Map.of("enabled", true, "max-level", 2));
+        enchantments.put("flame", Map.of("enabled", true, "max-level", 1));
+        enchantments.put("sweeping-edge", Map.of("enabled", true, "max-level", 3));
+        enchantments.put("thorns", Map.of("enabled", true, "max-level", 3));
+        enchantments.put("silk-touch", Map.of("enabled", true, "max-level", 1));
+        enchantments.put("luck-of-the-sea", Map.of("enabled", true, "max-level", 5));
+        enchantments.put("channeling", Map.of("enabled", true, "max-level", 1));
+        enchantments.put("riptide", Map.of("enabled", true, "max-level", 3));
+        enchantments.put("impaling", Map.of("enabled", true, "max-level", 5));
+        enchantments.put("breach", Map.of("enabled", true, "max-level", 4));
+        enchantments.put("piercing", Map.of("enabled", true, "max-level", 4));
+        enchantments.put("wind-burst", Map.of("enabled", true, "max-level", 3));
         root.put("enchantments", enchantments);
         return root;
     }

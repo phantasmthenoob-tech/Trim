@@ -52,7 +52,7 @@ public final class CapabilityScanner {
         }
         switch (name) {
             case "ender_pearl", "egg", "snowball", "experience_bottle",
-                 "splash_potion", "lingering_potion" -> capabilities.add(ItemCapability.THROWABLE);
+                 "splash_potion", "lingering_potion", "wind_charge" -> capabilities.add(ItemCapability.THROWABLE);
             case "bow" -> capabilities.add(ItemCapability.RANGED_BOW);
             case "crossbow" -> capabilities.add(ItemCapability.RANGED_CROSSBOW);
             case "trident" -> {
@@ -63,6 +63,7 @@ public final class CapabilityScanner {
             case "shears" -> capabilities.add(ItemCapability.SHEARS);
             case "fishing_rod" -> capabilities.add(ItemCapability.FISHING_ROD);
             case "shield" -> capabilities.add(ItemCapability.SHIELD);
+            case "totem_of_undying" -> capabilities.add(ItemCapability.TOTEM);
             default -> {
             }
         }

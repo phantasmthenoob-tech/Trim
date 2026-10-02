@@ -4,11 +4,15 @@ import com.unbound.core.command.UnboundCommand;
 import com.unbound.core.config.ConfigManager;
 import com.unbound.core.enchant.handlers.AttackHandler;
 import com.unbound.core.enchant.handlers.BlockBreakHandler;
+import com.unbound.core.enchant.handlers.BlockPlaceHandler;
 import com.unbound.core.enchant.handlers.EnchantingTableHandler;
 import com.unbound.core.enchant.handlers.ExperienceHandler;
+import com.unbound.core.enchant.handlers.InteractHandler;
 import com.unbound.core.enchant.handlers.ItemUseHandler;
 import com.unbound.core.enchant.handlers.PlayerLifecycleHandler;
 import com.unbound.core.enchant.handlers.ProjectileHandler;
+import com.unbound.core.enchant.handlers.ThornsHandler;
+import com.unbound.core.enchant.handlers.VeilHandler;
 import com.unbound.core.enchant.handlers.DurabilityHandler;
 
 import org.bukkit.command.PluginCommand;
@@ -36,12 +40,21 @@ public final class UnboundPlugin extends JavaPlugin {
         PluginManager pluginManager = getServer().getPluginManager();
         pluginManager.registerEvents(new AttackHandler(services), this);
         pluginManager.registerEvents(new BlockBreakHandler(services), this);
+        pluginManager.registerEvents(new BlockPlaceHandler(services), this);
         pluginManager.registerEvents(new ItemUseHandler(services), this);
         pluginManager.registerEvents(new ProjectileHandler(services), this);
         pluginManager.registerEvents(new DurabilityHandler(services), this);
         pluginManager.registerEvents(new ExperienceHandler(services), this);
         pluginManager.registerEvents(new PlayerLifecycleHandler(services), this);
         pluginManager.registerEvents(new EnchantingTableHandler(services), this);
+        pluginManager.registerEvents(new VeilHandler(services, java.util.Map.of(
+                com.unbound.core.enchant.VeilType.ALL, services.veilState(),
+                com.unbound.core.enchant.VeilType.FIRE, services.veilState(),
+                com.unbound.core.enchant.VeilType.BLAST, services.veilState(),
+                com.unbound.core.enchant.VeilType.PROJECTILE, services.veilState(),
+                com.unbound.core.enchant.VeilType.FALL, services.veilState())), this);
+        pluginManager.registerEvents(new ThornsHandler(services), this);
+        pluginManager.registerEvents(new InteractHandler(services), this);
 
         PluginCommand command = getCommand("unbound");
         if (command != null) {

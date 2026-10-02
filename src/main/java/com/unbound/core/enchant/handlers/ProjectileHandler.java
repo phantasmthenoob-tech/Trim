@@ -122,6 +122,9 @@ public final class ProjectileHandler implements Listener {
                     ? potion.getItem().getType()
                     : Material.SPLASH_POTION;
         }
+        if (entity instanceof org.bukkit.entity.WindCharge) {
+            return Material.WIND_CHARGE;
+        }
         return null;
     }
 

@@ -14,8 +14,8 @@ import com.unbound.core.enchant.ProcessingGuard;
  * flattening Bukkit's FileConfiguration) into {@link UnboundConfig}.
  *
  * <p>Pure: no Bukkit imports. Missing keys fall back to documented defaults;
- * invalid values are ignored in favor of defaults rather than throwing, so a
- * bad edit never bricks the plugin.</p>
+ * invalid values are clamped or ignored in favor of defaults rather than
+ * throwing, so a bad edit never bricks the plugin.</p>
  */
 public final class ConfigParser {
 
@@ -42,13 +42,19 @@ public final class ConfigParser {
                 nonNegative(limitsMap, "max-effect-chain-depth", 8));
 
         Map<String, Object> enchantments = section(root, "enchantments");
+        // Shared tuning sections that are not enchantments themselves.
+        Set<String> sharedSections = Set.of("veil", "ignite");
         Map<String, UnboundConfig.EnchToggle> toggles = new LinkedHashMap<>();
         for (Map.Entry<String, Object> entry : enchantments.entrySet()) {
+            String key = entry.getKey().toLowerCase(Locale.ROOT);
+            if (sharedSections.contains(key)) {
+                continue;
+            }
             Map<String, Object> node = asMap(entry.getValue());
             if (node == null) {
                 continue;
             }
-            toggles.put(entry.getKey().toLowerCase(Locale.ROOT), new UnboundConfig.EnchToggle(
+            toggles.put(key, new UnboundConfig.EnchToggle(
                     bool(node, "enabled", true),
                     Math.max(1, intOf(node, "max-level", 1))));
         }
@@ -56,13 +62,30 @@ public final class ConfigParser {
         Map<String, Object> infinityMap = section(enchantments, "infinity");
         Map<String, Object> consumables = section(infinityMap, "consumables");
         Map<String, Object> durability = section(infinityMap, "durability");
+        Map<String, Object> blocks = section(infinityMap, "blocks");
         UnboundConfig.InfinitySettings infinity = new UnboundConfig.InfinitySettings(
                 bool(infinityMap, "enabled", true),
                 bool(consumables, "enabled", true),
                 bool(consumables, "prevent-consumption", true),
                 lowerSet(stringList(consumables, "excluded-materials", List.of("milk_bucket"))),
                 bool(durability, "enabled", true),
-                bool(durability, "prevent-durability-loss", true));
+                bool(durability, "prevent-durability-loss", true),
+                bool(infinityMap, "restore-totems", true),
+                bool(blocks, "restore", true),
+                lowerSet(stringList(blocks, "excluded", List.of(
+                        "diamond_block", "emerald_block", "gold_block", "iron_block",
+                        "netherite_block", "netherite_ingot", "ancient_debris",
+                        "beacon", "conduit", "ender_chest", "enchanting_table",
+                        "jukebox", "lodestone", "respawn_anchor", "anvil",
+                        "chipped_anvil", "damaged_anvil",
+                        "chest", "trapped_chest", "barrel", "furnace", "blast_furnace",
+                        "smoker", "dispenser", "dropper", "hopper", "shulker_box",
+                        "white_shulker_box", "orange_shulker_box", "magenta_shulker_box",
+                        "light_blue_shulker_box", "yellow_shulker_box", "lime_shulker_box",
+                        "pink_shulker_box", "gray_shulker_box", "light_gray_shulker_box",
+                        "cyan_shulker_box", "purple_shulker_box", "blue_shulker_box",
+                        "brown_shulker_box", "green_shulker_box", "red_shulker_box",
+                        "black_shulker_box", "spawner", "bee_nest", "beehive"))));
 
         Map<String, Object> unbreakingMap = section(enchantments, "unbreaking");
         UnboundConfig.UnbreakingSettings unbreaking = new UnboundConfig.UnbreakingSettings(
@@ -146,9 +169,82 @@ public final class ConfigParser {
                 clamp01(doubleOf(lootingMap, "extra-chance-per-level", 0.25)),
                 bool(lootingMap, "boost-rare-drops", false));
 
+        // ---- 1.1 interpretation settings ---------------------------------
+
+        Map<String, Object> veilMap = section(enchantments, "veil");
+        UnboundConfig.VeilSettings veil = new UnboundConfig.VeilSettings(
+                bool(veilMap, "enabled", true),
+                clamp(doubleOf(veilMap, "max-duration-seconds", 20.0), 1.0, 60.0));
+
+        Map<String, Object> igniteMap = section(enchantments, "ignite");
+        UnboundConfig.IgniteSettings ignite = new UnboundConfig.IgniteSettings(
+                bool(igniteMap, "enabled", true),
+                bool(igniteMap, "fire-aspect-on-projectiles", true),
+                bool(igniteMap, "flame-on-melee", true),
+                bool(igniteMap, "infinite-combo", true),
+                Math.max(1, intOf(igniteMap, "max-burn-seconds", 20)),
+                lowerSet(stringList(igniteMap, "projectiles", List.of("snowball", "egg", "wind_charge"))));
+
+        Map<String, Object> sweepMap = section(enchantments, "sweeping-edge");
+        UnboundConfig.SweepSettings sweep = new UnboundConfig.SweepSettings(
+                bool(sweepMap, "enabled", true),
+                Math.max(1, intOf(sweepMap, "max-targets", 8)),
+                clamp(doubleOf(sweepMap, "damage-fraction", 0.75), 0.05, 1.0),
+                bool(sweepMap, "knockback", true),
+                Math.max(0.0, doubleOf(sweepMap, "knockback-strength", 0.3)));
+
+        Map<String, Object> thornsMap = section(enchantments, "thorns");
+        UnboundConfig.ThornsSettings thorns = new UnboundConfig.ThornsSettings(
+                bool(thornsMap, "enabled", true),
+                Math.max(1, intOf(thornsMap, "max-targets", 4)),
+                clamp(doubleOf(thornsMap, "damage-fraction", 0.5), 0.05, 1.0));
+
+        Map<String, Object> silkMap = section(enchantments, "silk-touch");
+        UnboundConfig.SilkTouchSettings silkTouch = new UnboundConfig.SilkTouchSettings(
+                bool(silkMap, "enabled", true));
+
+        Map<String, Object> luckMap = section(enchantments, "luck-of-the-sea");
+        UnboundConfig.LuckSettings luck = new UnboundConfig.LuckSettings(
+                bool(luckMap, "enabled", true),
+                Math.max(1, intOf(luckMap, "seconds", 5)));
+
+        Map<String, Object> channelingMap = section(enchantments, "channeling");
+        UnboundConfig.ChannelingSettings channeling = new UnboundConfig.ChannelingSettings(
+                bool(channelingMap, "enabled", true),
+                bool(channelingMap, "require-thundering", false));
+
+        Map<String, Object> riptideMap = section(enchantments, "riptide");
+        UnboundConfig.RiptideSettings riptide = new UnboundConfig.RiptideSettings(
+                bool(riptideMap, "enabled", true),
+                clamp(doubleOf(riptideMap, "projectile-damage-fraction", 0.30), 0.05, 1.0),
+                bool(riptideMap, "melee-works-without-water", true));
+
+        Map<String, Object> impalingMap = section(enchantments, "impaling");
+        UnboundConfig.ImpalingSettings impaling = new UnboundConfig.ImpalingSettings(
+                bool(impalingMap, "enabled", true),
+                Math.max(1, intOf(impalingMap, "max-targets", 5)),
+                clamp(doubleOf(impalingMap, "damage-fraction", 0.8), 0.05, 1.0));
+
+        Map<String, Object> breachMap = section(enchantments, "breach");
+        UnboundConfig.BreachSettings breach = new UnboundConfig.BreachSettings(
+                bool(breachMap, "enabled", true),
+                clamp01(doubleOf(breachMap, "armor-fraction-per-level", 0.16)));
+
+        Map<String, Object> piercingMap = section(enchantments, "piercing");
+        UnboundConfig.PiercingSettings piercing = new UnboundConfig.PiercingSettings(
+                bool(piercingMap, "enabled", true),
+                Math.max(10, intOf(piercingMap, "shield-break-ticks", 100)));
+
+        Map<String, Object> windBurstMap = section(enchantments, "wind-burst");
+        UnboundConfig.WindBurstSettings windBurst = new UnboundConfig.WindBurstSettings(
+                bool(windBurstMap, "enabled", true),
+                Math.max(1, intOf(windBurstMap, "max-charges", 12)));
+
         return new UnboundConfig(tableEnabled, denyMessage, debugEnabled, debugToggle, debugTiming,
                 limits, toggles, infinity, unbreaking, mending, efficiency, quickCharge, multishot,
-                sharpness, power, punch, fortune, looting);
+                sharpness, power, punch, fortune, looting,
+                veil, ignite, sweep, thorns, silkTouch, luck, channeling, riptide, impaling,
+                breach, piercing, windBurst);
     }
 
     // ---- helpers -------------------------------------------------------
@@ -205,12 +301,6 @@ public final class ConfigParser {
         return fallback;
     }
 
-    /** Non-negative int; invalid or negative values fall back to the default. */
-    private static int nonNegative(Map<String, Object> map, String key, int fallback) {
-        int value = intOf(map, key, fallback);
-        return value < 0 ? fallback : value;
-    }
-
     private static double doubleOf(Map<String, Object> map, String key, double fallback) {
         Object value = map.get(key);
         if (value instanceof Number number) {
@@ -251,6 +341,12 @@ public final class ConfigParser {
             result.add(value.toLowerCase(Locale.ROOT).trim());
         }
         return Set.copyOf(result);
+    }
+
+    /** Non-negative int; invalid or negative values fall back to the default. */
+    private static int nonNegative(Map<String, Object> map, String key, int fallback) {
+        int value = intOf(map, key, fallback);
+        return value < 0 ? fallback : value;
     }
 
     private static double clamp01(double value) {

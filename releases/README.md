@@ -12,6 +12,8 @@ Version history for each published jar:
 
 | Jar version | Plugin version | Changes |
 |---|---|---|
+| `Unbound-latest.jar` | 1.2.0 | Infinity extended: restores thrown wind charges, and cheap placed blocks (dirt, cobblestone, cobwebs, ...) one tick after placing — with an anti-duplication exclusion list (ore/valuable blocks, containers, shulkers, spawners, anvils, etc.). Blocks must still be the placed type one tick later; breaking first means no restore. |
+| `Unbound-latest.jar` | 1.1.0 | 18 new interpretations: protection-family veils (timed extra-armor damage reduction), Fire Aspect ↔ Flame cross-over with infinite-burn combo, Sweeping Edge on melee+projectiles, Thorns-as-sweep, Silk Touch player heads, held Luck, universal Channeling, Riptide (projectile speed + melee self-launch without water), Impaling line pierce, armor-piercing Breach, shield-piercing Piercing (new key), Wind Burst charge bursts, Infinity now preserves totems. 61→70 unit tests. |
 | `Unbound-latest.jar` | 1.0.0 | Initial implementation: 11 universal enchantments (Sharpness delta rebase, Power/Punch extension, Multishot melee+bow, Infinity preservation, Unbreaking, Mending, Efficiency attack-speed, Quick Charge cooldowns, Fortune/Looting additive rolls), 28 pass-through placeholders, `/unbound` command suite, guard-based recursion/budget safety, config-driven behavior, 61 unit tests green. |
 
 > Note: `Unbound-latest.jar` is a copy of the jar produced by
