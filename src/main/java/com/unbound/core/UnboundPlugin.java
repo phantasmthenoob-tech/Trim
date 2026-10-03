@@ -3,6 +3,7 @@ package com.unbound.core;
 import com.unbound.core.command.UnboundCommand;
 import com.unbound.core.config.ConfigManager;
 import com.unbound.inspect.EnderChestCommand;
+import com.unbound.inspect.InspectCommand;
 import com.unbound.inspect.InspectHandler;
 import com.unbound.core.enchant.handlers.AttackHandler;
 import com.unbound.core.enchant.handlers.BlockBreakHandler;
@@ -34,6 +35,7 @@ public final class UnboundPlugin extends JavaPlugin {
 
     private UnboundServices services;
     private RiptideChargeHandler riptideChargeHandler;
+    private InspectHandler inspectHandler;
 
     @Override
     public void onEnable() {
@@ -59,13 +61,21 @@ public final class UnboundPlugin extends JavaPlugin {
         pluginManager.registerEvents(new ThornsHandler(services), this);
         this.riptideChargeHandler = new RiptideChargeHandler(services);
         pluginManager.registerEvents(this.riptideChargeHandler, this);
-        pluginManager.registerEvents(new InspectHandler(), this);
+        this.inspectHandler = new InspectHandler(this);
+        pluginManager.registerEvents(this.inspectHandler, this);
 
         PluginCommand enderChest = getServer().getPluginCommand("enderchest");
         if (enderChest != null) {
             EnderChestCommand enderChestExecutor = new EnderChestCommand();
             enderChest.setExecutor(enderChestExecutor);
             enderChest.setTabCompleter(enderChestExecutor);
+        }
+
+        PluginCommand inspect = getServer().getPluginCommand("inspect");
+        if (inspect != null) {
+            InspectCommand inspectExecutor = new InspectCommand(this.inspectHandler);
+            inspect.setExecutor(inspectExecutor);
+            inspect.setTabCompleter(inspectExecutor);
         }
 
         PluginCommand command = getCommand("unbound");

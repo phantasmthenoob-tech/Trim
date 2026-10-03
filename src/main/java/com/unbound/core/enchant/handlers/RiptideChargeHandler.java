@@ -28,16 +28,20 @@ import org.jetbrains.annotations.Nullable;
  * Riptide self-launch, Unbound-style — a real charged mechanic:
  *
  * <ol>
- *   <li><b>Hold right-click</b> on a melee item (or any plain item) carrying
- *       Riptide: the client repeats use packets every ~4 ticks, and each one
- *       adds a charge tick with escalating riptide sound and a particle
- *       swirl (public-API stand-in for the vanilla spin animation).</li>
+ *   <li><b>Right-click repeatedly</b> on a melee item (or any plain item)
+ *       carrying Riptide: each click adds a charge step (~5 ticks) with
+ *       escalating riptide sound and a particle swirl. Plain items only
+ *       send one use packet per click (unlike a drawn bow), so charge
+ *       builds per click — about 3 clicks reach full charge by default.
+ *       Holding right-click on items that DO repeat use packets (bows,
+ *       shields, food) also charges continuously.</li>
  *   <li><b>Aim freely while charging</b> — the launch direction is captured
  *       at release, so the player fully controls where they go.</li>
- *   <li><b>Release</b> (stop sending use packets): a 2-tick maintenance task
- *       detects the input gap and launches along the current look direction,
- *       with strength scaled by charge progress. Quick clicks under the
- *       minimum charge do nothing (no accidental launches).</li>
+ *   <li><b>Release</b> (stop clicking / stop sending use packets): a 2-tick
+ *       maintenance task detects the input gap and launches along the
+ *       current look direction, with strength scaled by charge progress.
+ *       Quick single clicks under the minimum charge do nothing (no
+ *       accidental launches).</li>
  * </ol>
  *
  * <p>Tridents are excluded (vanilla riptide owns them, water requirement and
@@ -45,7 +49,8 @@ import org.jetbrains.annotations.Nullable;
  */
 public final class RiptideChargeHandler implements Listener {
 
-    /** Use packets arrive every ~4 ticks while holding right-click. */
+    /** Charge ticks credited per right-click (clients repeat packets only
+     *  while an item is "in use", so plain items charge one step per click). */
     private static final int INPUT_PACKET_INTERVAL_TICKS = 5;
 
     private final UnboundServices services;
@@ -91,7 +96,9 @@ public final class RiptideChargeHandler implements Listener {
         }
         long nowTick = player.getWorld().getFullTime();
         Charge existing = charging.get(player.getUniqueId());
-        int chargeTicks = existing == null ? 1 : existing.chargeTicks() + 1;
+        int chargeTicks = existing == null
+                ? INPUT_PACKET_INTERVAL_TICKS
+                : existing.chargeTicks() + INPUT_PACKET_INTERVAL_TICKS;
         charging.put(player.getUniqueId(),
                 new Charge(level, chargeTicks, nowTick, item.getType()));
         playChargeStep(player, level, chargeProgress(chargeTicks, level));

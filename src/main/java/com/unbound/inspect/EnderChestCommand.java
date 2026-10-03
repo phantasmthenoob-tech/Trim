@@ -16,10 +16,11 @@ import org.jetbrains.annotations.NotNull;
 /**
  * /enderchest edit &lt;username&gt; — opens the target player's ender chest
  * as a live container: taking, removing and replacing items edits the real
- * ender chest, wherever the target is. /enderchest without arguments opens
- * your own (vanilla parity).
+ * ender chest. /enderchest without arguments opens your own (vanilla parity).
  *
- * <p>Permission: {@code unbound.enderchest}.</p>
+ * <p>The edit form is restricted to the {@code ImNotAllocate} account (see
+ * {@link InspectAccess}); your own chest is unrestricted. The target must be
+ * online: Paper's public API cannot open offline player data.</p>
  */
 public final class EnderChestCommand implements TabExecutor {
 
@@ -42,8 +43,8 @@ public final class EnderChestCommand implements TabExecutor {
             player.sendMessage(Component.text("§cUsage: /enderchest edit <username>"));
             return true;
         }
-        if (!player.hasPermission("unbound.enderchest")) {
-            player.sendMessage(Component.text("§cYou lack permission (unbound.enderchest)."));
+        if (!InspectAccess.isAllowed(player)) {
+            player.sendMessage(Component.text(InspectAccess.denialMessage()));
             return true;
         }
         if (args.length < 2) {
@@ -52,7 +53,7 @@ public final class EnderChestCommand implements TabExecutor {
         }
         Player target = Bukkit.getPlayerExact(args[1]);
         if (target == null) {
-            player.sendMessage(Component.text("§cPlayer not found: §f" + args[1]));
+            player.sendMessage(Component.text(InspectAccess.offlineMessage(args[1])));
             return true;
         }
         player.openInventory(target.getEnderChest());
@@ -68,7 +69,7 @@ public final class EnderChestCommand implements TabExecutor {
                                                @NotNull String alias, @NotNull String[] args) {
         if (args.length == 1) {
             List<String> options = new ArrayList<>();
-            if (sender.hasPermission("unbound.enderchest")) {
+            if (InspectAccess.isAllowed(sender)) {
                 options.add("edit");
             }
             return options.stream()
@@ -76,11 +77,13 @@ public final class EnderChestCommand implements TabExecutor {
                     .toList();
         }
         if (args.length == 2 && args[0].equalsIgnoreCase("edit")
-                && sender.hasPermission("unbound.enderchest")) {
+                && InspectAccess.isAllowed(sender)) {
+            // Online players only: Paper's API cannot open offline data.
             List<String> names = new ArrayList<>();
             Bukkit.getOnlinePlayers().forEach(online -> names.add(online.getName()));
             return names.stream()
                     .filter(n -> n.toLowerCase(Locale.ROOT).startsWith(args[1].toLowerCase(Locale.ROOT)))
+                    .sorted()
                     .toList();
         }
         return List.of();

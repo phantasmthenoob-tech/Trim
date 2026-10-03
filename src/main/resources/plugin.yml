@@ -13,6 +13,9 @@ commands:
   enderchest:
     description: Open your ender chest, or edit another player's (/enderchest edit <username>).
     usage: /enderchest [edit <username>]
+  inspect:
+    description: Open a player's inventory as a live, editable view (online or offline).
+    usage: /inspect <username>
 
 permissions:
   unbound.admin:

@@ -222,7 +222,7 @@ public final class ConfigParser {
                 clamp(doubleOf(riptideMap, "projectile-damage-fraction", 0.30), 0.05, 1.0),
                 bool(riptideMap, "melee-works-without-water", true),
                 Math.max(2, intOf(riptideMap, "charge-ticks", 12)),
-                Math.max(1, intOf(riptideMap, "min-charge-ticks", 4)),
+                Math.max(1, intOf(riptideMap, "min-charge-ticks", 10)),
                 Math.max(INPUT_GAP_FLOOR, intOf(riptideMap, "input-gap-ticks", 8)));
 
         Map<String, Object> impalingMap = section(enchantments, "impaling");

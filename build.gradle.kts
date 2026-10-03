@@ -3,7 +3,7 @@ plugins {
 }
 
 group = "com.unbound"
-version = "1.3.0"
+version = "1.3.2"
 description = "Universal enchantment mechanics for the Unbound SMP"
 
 java {
