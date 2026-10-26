@@ -65,6 +65,7 @@ public class StudioGUI implements Listener {
         PROP_VALUE, SEARCH, ITEM_NAME, ITEM_LORE, ITEM_AMOUNT, ITEM_DAMAGE,
         ITEM_ENCHANT, ALLY_OWNER, TRUST_ADD, TRUST_DEL, ENEMY_ADD, ENEMY_DEL,
         PRESET_SAVE, SNAP_SAVE, EFFECT_ADD, ATTR_VALUE, TELEPORT, NAME_SET, DATA_SEARCH,
+        ALLOW_TYPES, EXCLUDE_TYPES,
     }
 
     private record PendingInput(InputKind kind, UUID entityUuid, String data) {
@@ -994,9 +995,22 @@ public class StudioGUI implements Listener {
                     pluginManaged(entity) ? "<aqua>Also plugin-managed"
                             : "<gray>Not plugin-managed — set owner above"));
         }
+        // Type filters gate guard engagement (retaliation / defense / join),
+        // not vanilla targeting — the lore says so. Empty = no filtering.
+        inv.setItem(48, named(Material.HOPPER, "<white>Allowed types: <aqua>"
+                + (rec.allowedTypes().isEmpty() ? "any" : rec.allowedTypes().size() + " set"),
+                rec.allowedTypes().isEmpty() ? "<gray>No filter — any type engages"
+                        : "<gray>" + escape(trunc(String.join(", ", rec.allowedTypes()), 40)),
+                "<yellow>Click to set (a, b, c)", "<gray>Right-click to clear"));
+        inv.setItem(50, named(Material.HOPPER, "<white>Excluded types: <aqua>"
+                + (rec.excludedTypes().isEmpty() ? "none" : rec.excludedTypes().size() + " set"),
+                rec.excludedTypes().isEmpty() ? "<gray>No exclusions"
+                        : "<gray>" + escape(trunc(String.join(", ", rec.excludedTypes()), 40)),
+                "<yellow>Click to set (a, b, c)", "<gray>Right-click to clear"));
         inv.setItem(GuiNav.BACK_54, navBack());
         inv.setItem(GuiNav.HELP_54, helpItem("Profiles: PASSIVE never attacks,",
-                "GUARD defends owner + trusted.", "Anchors: soft tolerates drift, hard holds spot."));
+                "GUARD defends owner + trusted.", "Anchors: soft tolerates drift, hard holds spot.",
+                "Type filters gate guard engagement, not vanilla targeting."));
         inv.setItem(GuiNav.ACTION_54, named(Material.ENDER_PEARL, "<aqua>Teleport entity here",
                 "<gray>Brings the entity to you", "<yellow>Click to teleport"));
         inv.setItem(GuiNav.REFRESH_54, navRefresh());
@@ -1692,7 +1706,11 @@ public class StudioGUI implements Listener {
                     plugin.history().record(new EditRecord(p.getUniqueId(),
                             e.getUniqueId(), e.getType().name(), "Remove entity",
                             "existed", "removed", false, "DESTRUCTIVE", null));
+                    // The UUID never returns: drop session lock, stash, AND
+                    // the managed behavior record, or reconcile loops and
+                    // managed.yml accumulate a ghost forever.
                     plugin.sessions().closeForEntity(e.getUniqueId());
+                    plugin.allegiance().forget(e.getUniqueId());
                     plugin.stashes().drop(e.getUniqueId());
                     e.remove();
                     p.closeInventory();
@@ -2312,6 +2330,34 @@ public class StudioGUI implements Listener {
                         right ? InputKind.ENEMY_DEL : InputKind.ENEMY_ADD, null,
                         right ? "<yellow>Type an enemy name/UUID to REMOVE:"
                                 : "<yellow>Type a player name/UUID to mark ENEMY:");
+            }
+            case 48 -> {
+                if (!plugin.permitted(player, StudioPermissions.ALLEGIANCE)) {
+                    plugin.send(player, plugin.msg("no-permission"));
+                    return;
+                }
+                if (right) {
+                    rec.allowedTypes().clear();
+                    plugin.send(player, "<gray>Allowed-types filter cleared (any type engages).");
+                    openBehavior(player, entity);
+                } else {
+                    askChat(player, entity.getUniqueId(), InputKind.ALLOW_TYPES, null,
+                            "<yellow>Type allowed types, comma-separated (blank clears, cancel aborts):");
+                }
+            }
+            case 50 -> {
+                if (!plugin.permitted(player, StudioPermissions.ALLEGIANCE)) {
+                    plugin.send(player, plugin.msg("no-permission"));
+                    return;
+                }
+                if (right) {
+                    rec.excludedTypes().clear();
+                    plugin.send(player, "<gray>Excluded-types filter cleared.");
+                    openBehavior(player, entity);
+                } else {
+                    askChat(player, entity.getUniqueId(), InputKind.EXCLUDE_TYPES, null,
+                            "<yellow>Type excluded types, comma-separated (blank clears, cancel aborts):");
+                }
             }
             case 37, 38 -> {
                 if (!plugin.permitted(player, StudioPermissions.BEHAVIOR)) {
@@ -3325,6 +3371,33 @@ public class StudioGUI implements Listener {
                     default -> {
                     }
                 }
+                openBehavior(player, entity);
+            }
+            case ALLOW_TYPES, EXCLUDE_TYPES -> {
+                if (entity == null) {
+                    return;
+                }
+                if (!plugin.permitted(player, StudioPermissions.ALLEGIANCE)) {
+                    plugin.send(player, plugin.msg("no-permission"));
+                    reopen(player, req.entityUuid());
+                    return;
+                }
+                var parsed = com.entitystudio.behavior.AllegianceService
+                        .parseTypeFilter(text);
+                if (!parsed.ok()) {
+                    plugin.send(player, "<red>" + parsed.error());
+                    pending.put(player.getUniqueId(), req);
+                    return;
+                }
+                ManagedRecord rec = plugin.allegiance().getOrCreate(entity);
+                java.util.Set<String> target = req.kind() == InputKind.ALLOW_TYPES
+                        ? rec.allowedTypes() : rec.excludedTypes();
+                target.clear();
+                target.addAll(parsed.types());
+                plugin.send(player, parsed.types().isEmpty()
+                        ? "<gray>Filter cleared."
+                        : "<green>Filter set: <white>"
+                                + escape(String.join(", ", parsed.types())));
                 openBehavior(player, entity);
             }
             case PRESET_SAVE -> {

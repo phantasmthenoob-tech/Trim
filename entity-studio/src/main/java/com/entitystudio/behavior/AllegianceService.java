@@ -27,6 +27,10 @@ public class AllegianceService implements Listener {
 
     private final EntityStudioPlugin plugin;
     private final Map<UUID, ManagedRecord> managed = new ConcurrentHashMap<>();
+    /** Single repeating reconcile task handle. One task total (never one per
+     * entity): stored so disable/reload cancels it explicitly instead of
+     * relying on platform cleanup alone. */
+    private org.bukkit.scheduler.BukkitTask task;
 
     public AllegianceService(EntityStudioPlugin plugin) {
         this.plugin = plugin;
@@ -106,16 +110,32 @@ public class AllegianceService implements Listener {
 
     public void start() {
         Bukkit.getPluginManager().registerEvents(this, plugin);
+        stop(); // never stack a second timer across reload cycles
         int period = Math.max(5, plugin.getConfig().getInt("settings.behavior.anchor-check-ticks", 10));
-        Bukkit.getScheduler().runTaskTimer(plugin, () -> {
+        task = Bukkit.getScheduler().runTaskTimer(plugin, () -> {
             reconcileAnchors();
             reconcileManaged();
         }, period, period);
     }
 
+    /** Cancels the reconcile timer. Called from {@code onDisable}; Bukkit
+     * would also drop it, but an explicit handle means no uncontrolled
+     * repeating work can outlive the plugin. World unloads need no handling:
+     * unloaded entities resolve to null and are skipped, never teleported. */
+    public void stop() {
+        if (task != null) {
+            try {
+                task.cancel();
+            } catch (Exception ignored) {
+            }
+            task = null;
+        }
+    }
+
     /** Re-asserts managed AI state (AI on/off, passive target suppression) so
      * profile switches survive reloads, chunk unloads, and other plugins
-     * fighting over the same mob. Touches managed mobs only. */
+     * fighting over the same mob. Touches managed mobs only — never scans
+     * every entity in any world. */
     private void reconcileManaged() {
         for (ManagedRecord record : managed.values()) {
             Entity entity = Bukkit.getEntity(record.entityUuid());
@@ -123,11 +143,17 @@ public class AllegianceService implements Listener {
                 continue;
             }
             if (record.profile() == ManagedRecord.Profile.PASSIVE) {
+                // PASSIVE is absolute: no target, no awareness, no AI. The AI
+                // line matters — without it another plugin (or a reload) can
+                // silently re-enable the brain while the record claims passive.
                 if (mob.getTarget() != null) {
                     mob.setTarget(null);
                 }
                 if (mob.isAware()) {
                     mob.setAware(false);
+                }
+                if (mob.hasAI()) {
+                    mob.setAI(false);
                 }
                 continue;
             }
@@ -276,6 +302,57 @@ public class AllegianceService implements Listener {
         }
     }
 
+    /** A dead entity never returns under the same UUID, so its managed
+     * record is permanently useless: drop it instead of reconciling a ghost
+     * forever. Chunk unloads do NOT fire this event, so guards that unload
+     * keep their configuration and reconcile when available again. */
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    public void onDeath(org.bukkit.event.entity.EntityDeathEvent event) {
+        managed.remove(event.getEntity().getUniqueId());
+    }
+
+    /** Pure anchor-distance decisions, extracted for headless tests.
+     * Hard anchors correct drift beyond ~0.2 blocks (squared: 0.04) while
+     * tolerating tiny physics jitter; soft anchors only settle pursuit past
+     * the configured tolerance, never teleport. */
+    public static boolean shouldCorrectHard(double distSq) {
+        return distSq > 0.04;
+    }
+
+    public static boolean shouldSettleSoft(double distSq, double tolerance) {
+        return distSq > tolerance * tolerance;
+    }
+
+    /** Parses a comma-separated entity-type filter (e.g. "zombie, skeleton")
+     * into uppercase type names. Unknown tokens fail the whole input with
+     * the offending token named — a filter never half-applies. Plain
+     * {@code EntityType} enum: safe without a server. */
+    public static TypeFilterResult parseTypeFilter(String input) {
+        if (input == null || input.isBlank()) {
+            return new TypeFilterResult(java.util.Set.of(), null);
+        }
+        java.util.LinkedHashSet<String> out = new java.util.LinkedHashSet<>();
+        for (String token : input.split(",")) {
+            String t = token.trim().toUpperCase(java.util.Locale.ROOT);
+            if (t.isEmpty()) {
+                continue;
+            }
+            try {
+                out.add(org.bukkit.entity.EntityType.valueOf(t).name());
+            } catch (IllegalArgumentException e) {
+                return new TypeFilterResult(null,
+                        "Unknown entity type '" + token.trim() + "'.");
+            }
+        }
+        return new TypeFilterResult(java.util.Set.copyOf(out), null);
+    }
+
+    public record TypeFilterResult(java.util.Set<String> types, String error) {
+        public boolean ok() {
+            return error == null;
+        }
+    }
+
     // ---------------------------------------------------------------- anchors
 
     private void reconcileAnchors() {
@@ -297,13 +374,13 @@ public class AllegianceService implements Listener {
             double dz = at.getZ() - record.anchorZ();
             double distSq = dx * dx + dy * dy + dz * dz;
             if (record.hardAnchor()) {
-                if (distSq > 0.04) { // ~0.2 blocks: correct drift, allow tiny physics jitter
+                if (shouldCorrectHard(distSq)) {
                     Location back = new Location(at.getWorld(), record.anchorX(), record.anchorY(),
                             record.anchorZ(), record.anchorYaw(), record.anchorPitch());
                     entity.teleport(back);
                     entity.setVelocity(new org.bukkit.util.Vector(0, 0, 0));
                 }
-            } else if (distSq > tolerance * tolerance) {
+            } else if (shouldSettleSoft(distSq, tolerance)) {
                 // Soft anchor: stop pursuit and let it settle nearby instead of
                 // teleporting — avoids jitter and fights with vanilla movement.
                 if (entity instanceof Mob mob) {
@@ -316,10 +393,26 @@ public class AllegianceService implements Listener {
 
     // ---------------------------------------------------------------- profiles
 
-    /** Applies a behavior profile template (best-effort, honestly scoped).
+    /** Applies a behavior profile template. All writes are absolute, never
+     * toggles, so applying the same profile twice is a no-op relative to the
+     * first application (idempotent) — verified by unit tests.
+     *
+     * <p>Native vs custom, honestly separated:
+     * <ul>
+     *   <li>Native controls: AI on/off, awareness, live target. These are
+     *   plain Bukkit toggles and do NOT by themselves constitute a behavior
+     *   mode — vanilla, other plugins, and special mob brains (Warden
+     *   vibration anger, boss phases) can still drive the entity.</li>
+     *   <li>Custom logic: the record's defend/retaliate/join/friendly-fire
+     *   flags plus allowed/excluded type filters, enforced by
+     *   event listeners ({@code onDamage}, {@code onTarget},
+     *   {@code onFriendlyFire}) and re-asserted by the reconcile timer.</li>
+     * </ul>
      * Profiles that need a brain always re-enable AI + awareness, so switching
      * from PASSIVE/STATIONARY back to GUARD (or any active profile) cannot
-     * leave the mob brain-dead. */
+     * leave the mob brain-dead. Requires {@code Mob}: entities without
+     * native targeting (armor stands, projectiles, vehicles) cannot take
+     * profiles — callers must gate on {@code instanceof Mob}. */
     public static String applyProfile(Mob mob, ManagedRecord.Profile profile, ManagedRecord record) {
         LivingEntity living = mob;
         return switch (profile) {
@@ -363,6 +456,9 @@ public class AllegianceService implements Listener {
                 yield "Aggressive: vanilla targeting rules apply (use allowed/excluded types).";
             }
             case STATIONARY -> {
+                // STATIONARY is AI-off, not an anchor: the entity still drifts
+                // with knockback, water, and vehicles. Combine with a soft or
+                // hard anchor to hold a position (documented in behavior.md).
                 mob.setTarget(null);
                 living.setAI(false);
                 record.aiEnabled(false);
@@ -371,7 +467,7 @@ public class AllegianceService implements Listener {
                 record.retaliate(false);
                 record.attackOwnerTarget(false);
                 record.profile(profile);
-                yield "Stationary: AI off (gravity/knockback still apply). Re-enable AI to restore.";
+                yield "Stationary: AI off (gravity/knockback still apply). Anchor to hold position.";
             }
             case CUSTOM -> {
                 living.setAI(true);

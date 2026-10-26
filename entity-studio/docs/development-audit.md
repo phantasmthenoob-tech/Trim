@@ -206,6 +206,42 @@ hopper mirrors, stash file reload after restart, two admins racing one
 container, and confirm/undo feel. `gradle build` green, 89/89 tests pass
 (83 prior + 6 `InventoryOpsTest`).
 
+## 11. Prompt-7 behavior review (2026-10-26) — AI, profiles, targeting, anchors
+
+Established exactly what each profile does (table in `docs/behavior.md`):
+absolute-state writes, mobs only, idempotent double-application (now unit
+tested), with native toggles honestly separated from event-listener custom
+logic. No API toggle is presented as a complete behavior mode anywhere in
+the GUI copy or docs.
+
+**Correctness fixes:** PASSIVE reconcile now also forces AI off (before, a
+re-enabled brain survived while the record claimed passive); snapshot /
+preset restores skip the profile label on non-Mobs (counted as skipped)
+while still applying the friendly-fire flag; entity removal and death now
+`forget()` the managed record (a UUID never returns — previously ghosts
+accumulated in the reconcile loop and `managed.yml`); the single reconcile
+timer's handle is stored, `start()` cancels any previous timer, and
+`onDisable` calls `stop()` — no uncontrolled repeaters by construction.
+World unloads need no handler (null-resolve skip, no cross-world teleport).
+
+**Small gap closed:** AGGRESSIVE's hint referenced allowed/excluded type
+filters with no editor. Behavior page now has allowed (48) / excluded (50)
+slots with comma-separated chat input validated against `EntityType`
+(whole-input rejection, blank clears, right-click clears). Filters gate
+guard engagement only — documented, not widened silently.
+
+**Documented limits:** Warden vibration anger, dragon/Wither phases,
+flyer/swimmer anchor jitter, competing plugins (last-writer-wins),
+`pursueOutsideRange` stored-but-unenforced, STATIONARY-with-retaliate
+absurdity. `docs/behavior.md` is the canonical reference.
+
+**Tests:** `AllegianceServiceTest` (11 tests: per-profile flags,
+full-matrix idempotency, passive→guard brain restore, family/enemy-override
+matrix, type-filter parse, anchor thresholds, conservative defaults) +
+existing `AllegianceRulesTest` (7). 92/92 green on Paper 1.21.11.
+**Live-server needs:** in-game guard retaliation vs arrows/melee, Warden
+behavior under PASSIVE, anchor jitter feel, two-plugin target fights.
+
 ## 8. Prioritized blockers for next stages
 
 1. **P1 — live-server verification.** Headless green is not proof on a

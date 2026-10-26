@@ -89,6 +89,9 @@ public class EntityStudioPlugin extends JavaPlugin implements SessionManager.Ent
 
     @Override
     public void onDisable() {
+        if (allegiance != null) {
+            allegiance.stop();
+        }
         if (managedStore != null
                 && getConfig().getBoolean("settings.behavior.persist-managed-settings", true)) {
             managedStore.save();

@@ -288,6 +288,11 @@ public class SnapshotService {
                 com.entitystudio.permission.StudioPermissions.BEHAVIOR)) {
             ConfigurationSection b = root.getConfigurationSection("behavior");
             if (b != null) {
+                // Profiles only mean something on Mobs (native targeting +
+                // AI). On anything else the profile label is skipped, not
+                // pretended — the friendly-fire flag below still applies
+                // because it works for any living attacker/victim pair.
+                boolean isMob = entity instanceof Mob;
                 ManagedRecord r = plugin.allegiance().getOrCreate(entity);
                 ManagedRecord.Profile oldProfile = r.profile();
                 boolean oldFriendlyFire = r.friendlyFireProtect();
@@ -295,11 +300,15 @@ public class SnapshotService {
                 try {
                     ManagedRecord.Profile next =
                             ManagedRecord.Profile.valueOf(b.getString("profile", "CUSTOM"));
-                    if (next != oldProfile) {
-                        r.profile(next);
-                        behaviorChanged = true;
+                    if (!isMob) {
+                        skipped++;
+                    } else {
+                        if (next != oldProfile) {
+                            r.profile(next);
+                            behaviorChanged = true;
+                        }
+                        changed++;
                     }
-                    changed++;
                 } catch (IllegalArgumentException e) {
                     skipped++;
                 }
