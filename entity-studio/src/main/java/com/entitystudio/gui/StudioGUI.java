@@ -1012,8 +1012,9 @@ public class StudioGUI implements Listener {
                 "<yellow>Click to set (a, b, c)", "<gray>Right-click to clear"));
         inv.setItem(GuiNav.BACK_54, navBack());
         inv.setItem(GuiNav.HELP_54, helpItem("Profiles: PASSIVE never attacks,",
-                "GUARD defends owner + trusted.", "Anchors: soft tolerates drift, hard holds spot.",
-                "Type filters gate guard engagement, not vanilla targeting."));
+                "GUARD defends owner + trusted,", "AGGRESSIVE hunts anything nearby that isn't family.",
+                "Anchors: soft tolerates drift, hard holds spot.",
+                "Type filters gate guard + aggressive engagement."));
         inv.setItem(GuiNav.ACTION_54, named(Material.ENDER_PEARL, "<aqua>Teleport entity here",
                 "<gray>Brings the entity to you", "<yellow>Click to teleport"));
         inv.setItem(GuiNav.REFRESH_54, navRefresh());
@@ -1039,7 +1040,7 @@ public class StudioGUI implements Listener {
             case PASSIVE -> "Never initiates attacks";
             case NEUTRAL -> "Vanilla retaliation only";
             case GUARD -> "Protects owner + trusted";
-            case AGGRESSIVE -> "Vanilla targeting rules";
+            case AGGRESSIVE -> "Hunts anything nearby (not family)";
             case STATIONARY -> "AI off, stays put";
             case CUSTOM -> "Configured rule by rule";
         };

@@ -66,6 +66,44 @@ enemy rule.
   timer skips entities that resolve to null; anchors never teleport across
   worlds (world-name mismatch = skip, no cross-dimension yoink).
 
+## AGGRESSIVE is plugin-driven, not vanilla
+
+Applying AGGRESSIVE does not rely on vanilla hostility at all, so it works
+for cows and creepers alike — any `Mob` can take the profile (non-mobs have
+no `setTarget` API, so the behavior page still gates profiles on `Mob`).
+Every reconcile cycle an aggressive mob with no target scans its own
+follow-range (clamped 4–64 blocks, default 16) for the nearest legal prey:
+anything that isn't the owner, trusted, same-family, creative/spectator, or
+type-filtered out. Orders are remembered like any commanded target, so
+sight loss doesn't end the hunt.
+
+Hostile mobs keep vanilla movement and melee — the plugin only supplies
+targets. Peaceful mobs get two assists: the Paper pathfinder walks them
+into 3 blocks, and contact then deals 1.0 damage once per second
+(`damage(victim, mob)` so kill credit, enchantments, and the friendly-fire
+guard all work normally). Assist decisions key off the attack-damage
+attribute: present and positive means vanilla handles it. Raise
+`follow_range` (attributes page) for longer pursuits; the plugin never
+rewrites attributes behind your back.
+
+## Bloodline inheritance
+
+Managed allegiance passes to children automatically:
+
+- **Breeding** (`EntityBreedEvent`): the baby copies the managed mother or
+  father (mother wins) — owner, trusted, enemies, filters, defense flags,
+  profile, brain state. Exact parents, no guessing.
+- **Slime splits** (`SLIME_SPLIT`): each child takes the nearest managed
+  mob of the same type within 16 blocks.
+- **Summons** (`SPELL`, e.g. evoker vexes): the spawn takes the nearest
+  managed mob within 16 blocks, any type.
+
+Copied: everything persistent (owner/trust/enemies/filters/flags/profile).
+Never copied: anchors (position-specific) and commanded targets (fight-
+specific). Inheritance needs no permissions — spawning is server-driven —
+and writes no history (no actor). Profiles still require `Mob`; non-mob
+offspring are left alone.
+
 ## Stationary & anchors
 
 Two separate concepts, combinable:

@@ -31,6 +31,10 @@ public class ManagedRecord {
     private boolean pursueOutsideRange = true;
     private boolean clearInvalidTarget = true;
     private boolean friendlyFireProtect = true;
+    /** Plugin-driven aggression (AGGRESSIVE profile): hunt anything nearby
+     * that isn't family. Distinct from vanilla hostility — works for cows
+     * and creepers alike. Persisted like any other config flag. */
+    private boolean aggressive;
     /** Last target this record's rules assigned (owner command, defense,
      * retaliation). Transient on purpose: targets never survive restarts,
      * so this is deliberately NOT persisted by the codec. */
@@ -156,6 +160,14 @@ public class ManagedRecord {
 
     public void friendlyFireProtect(boolean v) {
         friendlyFireProtect = v;
+    }
+
+    public boolean aggressive() {
+        return aggressive;
+    }
+
+    public void aggressive(boolean v) {
+        aggressive = v;
     }
 
     /** The given UUID is this record's owner or a trusted ally. */

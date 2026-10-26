@@ -36,10 +36,12 @@ real entity change. No `/data` memorization.
 - **Behavior** — AI/aware toggles, target clear, 6 idempotent behavior
   profiles (mobs only), soft/hard anchors, teleport, owner/trusted/enemies,
   allowed/excluded target-type filters, defend/retaliate rules, native vs
-  plugin-managed taming display. Targeting is evaluated in a deterministic
-  order (see `docs/behavior.md` — including Warden/boss limits, filter
-  scope, and task lifecycle). Vanilla conflicts are mediated, not
-  guaranteed: a Bukkit toggle is not a behavior mode.
+  plugin-managed taming display. AGGRESSIVE is plugin-driven hunting (works
+  for peaceful mobs too), and babies/summons inherit the managed parent's
+  allegiance. Targeting is evaluated in a deterministic order (see
+  `docs/behavior.md` — including Warden/boss limits, filter scope, task
+  lifecycle, aggression, and inheritance). Vanilla conflicts are mediated,
+  not guaranteed: a Bukkit toggle is not a behavior mode.
 - **Trades** — view/reset/remove offers, add offer from held item, profession
   and level via properties.
 - **Advanced data (read-only)** — identity facts, scoreboard tags, PDC

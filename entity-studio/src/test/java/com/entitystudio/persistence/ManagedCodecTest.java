@@ -34,6 +34,7 @@ class ManagedCodecTest {
         r.friendlyFireProtect(false);
         r.profile(ManagedRecord.Profile.GUARD);
         r.aiEnabled(false);
+        r.aggressive(true);
         r.setAnchor(true, true, "world", 1.5, 64, -3.25, 90f, 0f);
         return r;
     }
@@ -60,6 +61,7 @@ class ManagedCodecTest {
         assertFalse(back.friendlyFireProtect());
         assertEquals(ManagedRecord.Profile.GUARD, back.profile());
         assertFalse(back.aiEnabled());
+        assertTrue(back.aggressive());
         assertTrue(back.anchored());
         assertTrue(back.hardAnchor());
         assertEquals("world", back.anchorWorld());

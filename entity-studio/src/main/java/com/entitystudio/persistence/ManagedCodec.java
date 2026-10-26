@@ -52,6 +52,7 @@ public final class ManagedCodec {
         Map<String, Object> behavior = new LinkedHashMap<>();
         behavior.put("profile", r.profile().name());
         behavior.put("ai-enabled", r.aiEnabled());
+        behavior.put("aggressive", r.aggressive());
         behavior.put("anchored", r.anchored());
         behavior.put("hard-anchor", r.hardAnchor());
         behavior.put("world", r.anchorWorld());
@@ -115,6 +116,7 @@ public final class ManagedCodec {
             r.profile(ManagedRecord.Profile.CUSTOM);
         }
         r.aiEnabled(bool(behavior, "ai-enabled", true, problems));
+        r.aggressive(bool(behavior, "aggressive", false, problems));
         if (bool(behavior, "anchored", false, problems)) {
             String world = stringOrNull(behavior, "world");
             if (world == null || world.isBlank()) {

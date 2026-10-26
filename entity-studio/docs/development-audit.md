@@ -407,6 +407,37 @@ loss; soft-anchored guard keeps pursuing while ordered; armor swap on
 zombie vs honest discard message on dragon; dragon phase change visible
 in-fight.
 
+## 17. Bloodline inheritance + true aggressive mode (2026-10-26)
+
+**Inheritance:** babies and summons of managed mobs keep the family.
+`EntityBreedEvent` copies the managed mother/father (mother wins) exactly;
+`SLIME_SPLIT` and `SPELL` (evoker vexes) take the nearest managed mob
+within 16 blocks, same-type required for splits. `copyAllegiance` moves
+every persistent setting (owner/trust/enemies/filters/flags/profile/brain)
+and deliberately skips anchors and commanded targets; the child's brain is
+matched via `applyProfile`. Non-`Mob` offspring are left alone (profiles
+need `setTarget`).
+
+**AGGRESSIVE rewritten as plugin hunting, not vanilla:** the reconcile
+loop gives target-less aggressive mobs the nearest legal prey in their own
+follow-range (4–64 clamp, 16 default), skipping family/allies/creative/
+filtered targets; commanded-target memory makes sight loss survivable.
+Hostiles keep vanilla movement/melee (targets only); peaceful mobs get a
+Paper-pathfinder walk-in plus 1.0 contact damage at 1 Hz through
+`damage(victim, mob)` so kill credit and friendly-fire still work. The
+peaceful/hostile split keys off the attack-damage attribute (absent or
+non-positive = assist). New `aggressive` flag persisted in the codec
+(transient commanded targets stay unpersisted as before).
+
+**Tests:** `InheritanceTest` (copy semantics, donor pick/radius/type/
+world gates), `AggressionTest` (profile arming/disarming, pure assist +
+range math, attribute-unavailable degradation), codec round-trip extended.
+**135/135 green** headless (was 129). Docs: `behavior.md` (aggression +
+inheritance), README, audit. **Live-server needs:** evoker→vex handoff
+in a real raid, bred-baby guard behavior, aggressive cow actually walking
+to and hitting a zombie, aggressive zombie still using vanilla melee only
+(no double-hit from the assist path).
+
 ## 8. Prioritized blockers for next stages
 
 1. **P1 — live-server verification.** Headless green is not proof on a

@@ -2,7 +2,10 @@ package com.entitystudio.behavior;
 
 import com.entitystudio.EntityStudioPlugin;
 import org.bukkit.Bukkit;
+import org.bukkit.GameMode;
 import org.bukkit.Location;
+import org.bukkit.attribute.Attributable;
+import org.bukkit.attribute.Attribute;
 import org.bukkit.entity.Entity;
 import org.bukkit.entity.LivingEntity;
 import org.bukkit.entity.Mob;
@@ -11,6 +14,8 @@ import org.bukkit.entity.Projectile;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
+import org.bukkit.event.entity.CreatureSpawnEvent;
+import org.bukkit.event.entity.EntityBreedEvent;
 import org.bukkit.event.entity.EntityDamageByEntityEvent;
 import org.bukkit.event.entity.EntityTargetEvent;
 
@@ -146,6 +151,7 @@ public class AllegianceService implements Listener {
                 // PASSIVE is absolute: no target, no awareness, no AI. The AI
                 // line matters — without it another plugin (or a reload) can
                 // silently re-enable the brain while the record claims passive.
+                record.clearCommand();
                 if (mob.getTarget() != null) {
                     mob.setTarget(null);
                 }
@@ -164,6 +170,9 @@ public class AllegianceService implements Listener {
                 living.setAI(false);
             }
             reassertCommand(mob, record);
+            if (record.aggressive() && record.aiEnabled() && living.hasAI()) {
+                enforceAggression(mob, record);
+            }
         }
     }
 
@@ -300,6 +309,296 @@ public class AllegianceService implements Listener {
      * and a cross-dimension target assignment is meaningless aggro. */
     private boolean engageable(Mob mob, LivingEntity target, ManagedRecord record) {
         return engageableStatic(mob, target, record);
+    }
+
+    // ------------------------------------------------------------ aggression
+
+    /** Per-mob last custom-hit timestamps (transient): peaceful aggressors
+     * deal contact damage at most once per second, like a slow vanilla swing. */
+    private final Map<UUID, Long> lastAssistHit = new ConcurrentHashMap<>();
+
+    /** Plugin-driven aggression for the AGGRESSIVE profile: hunt the nearest
+     * legal target in scan range, walk peaceful mobs into melee, and deal
+     * contact damage where vanilla has no attack to speak of. Hostile mobs
+     * keep their vanilla movement and melee — this only supplies targets. */
+    private void enforceAggression(Mob mob, ManagedRecord record) {
+        LivingEntity current = mob.getTarget();
+        if (current != null && (!current.isValid() || current.isDead())) {
+            mob.setTarget(null);
+            current = null;
+        }
+        if (current == null) {
+            LivingEntity prey = nearestPrey(mob, record);
+            if (prey != null) {
+                assign(mob, record, prey);
+                current = prey;
+            }
+        }
+        if (current == null || !needsAssist(mob)) {
+            return;
+        }
+        // Peaceful mob with a target: walk in, then hit on a cooldown.
+        double distSq;
+        try {
+            distSq = mob.getLocation().distanceSquared(current.getLocation());
+        } catch (Exception e) {
+            return;
+        }
+        if (distSq > 9.0) {
+            try {
+                mob.getPathfinder().moveTo(current, 1.0);
+            } catch (Exception ignored) {
+                // Best effort: exotic movers may refuse paths.
+            }
+            return;
+        }
+        long now = System.currentTimeMillis();
+        Long last = lastAssistHit.get(mob.getUniqueId());
+        if (last != null && now - last < 1000) {
+            return;
+        }
+        lastAssistHit.put(mob.getUniqueId(), now);
+        try {
+            current.damage(1.0, mob);
+        } catch (Exception ignored) {
+            // Best effort: a dying or teleporting target may refuse damage.
+        }
+    }
+
+    /** True when vanilla has no melee to speak of: no attack-damage
+     * attribute, or a non-positive one. Those mobs need the pathfinder walk
+     * plus contact damage; anything with a real attack keeps vanilla. */
+    static boolean needsAssist(Mob mob) {
+        // The Attribute constants need a booted server registry headless, so
+        // resolution failures degrade to "assist" rather than breaking the page.
+        return needsAssistValue(attributeValue(mob, true));
+    }
+
+    /** Pure assist decision on a resolved attack-damage value (unit tested). */
+    static boolean needsAssistValue(Double attackDamage) {
+        return attackDamage == null || attackDamage <= 0;
+    }
+
+    /** Scan range: the mob's own follow range when it has one, else 16. */
+    static double scanRange(Mob mob) {
+        return scanRangeValue(attributeValue(mob, false));
+    }
+
+    /** Pure range math on a resolved follow-range value (unit tested). */
+    static double scanRangeValue(Double followRange) {
+        if (followRange == null) {
+            return 16.0;
+        }
+        return Math.min(64.0, Math.max(4.0, followRange));
+    }
+
+    /** Resolves ATTACK_DAMAGE (attack=true) or FOLLOW_RANGE (false) without
+     * throwing when attributes are absent or the platform is exotic. */
+    private static Double attributeValue(Mob mob, boolean attack) {
+        try {
+            if (mob instanceof Attributable a) {
+                var inst = a.getAttribute(
+                        attack ? Attribute.ATTACK_DAMAGE : Attribute.FOLLOW_RANGE);
+                if (inst != null) {
+                    return inst.getValue();
+                }
+            }
+        } catch (LinkageError | RuntimeException ignored) {
+            // fall through to null below
+        }
+        return null;
+    }
+
+    /** Nearest attackable living entity that isn't family, an ally, in
+     * creative/spectator, or filtered out — or null when nothing qualifies. */
+    private LivingEntity nearestPrey(Mob mob, ManagedRecord record) {
+        double range = scanRange(mob);
+        java.util.Collection<Entity> nearby;
+        try {
+            nearby = mob.getNearbyEntities(range, range, range);
+        } catch (Exception e) {
+            return null;
+        }
+        LivingEntity best = null;
+        double bestDist = Double.MAX_VALUE;
+        for (Entity e : nearby) {
+            if (!(e instanceof LivingEntity living) || living.equals(mob)) {
+                continue;
+            }
+            if (living instanceof Player p && (p.getGameMode() == GameMode.CREATIVE
+                    || p.getGameMode() == GameMode.SPECTATOR)) {
+                continue;
+            }
+            if (sharesAllegiance(record, mob.getUniqueId(),
+                    managed.get(living.getUniqueId()), living.getUniqueId())) {
+                continue;
+            }
+            if (!engageableStatic(mob, living, record)) {
+                continue;
+            }
+            double d;
+            try {
+                d = mob.getLocation().distanceSquared(living.getLocation());
+            } catch (Exception ex) {
+                continue;
+            }
+            if (d < bestDist) {
+                bestDist = d;
+                best = living;
+            }
+        }
+        return best;
+    }
+
+    // ---------------------------------------------------------- inheritance
+
+    /** Breeding passes allegiance down: a baby of a managed mob starts with
+     * the same owner, trusted circle, enemies, and rules. Position-specific
+     * state (anchor) and transient state (commanded target) never transfer. */
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    public void onBreed(EntityBreedEvent event) {
+        if (!plugin.getConfig().getBoolean("settings.behavior.enable-custom-allegiance", true)) {
+            return;
+        }
+        if (!(event.getEntity() instanceof Mob)) {
+            return; // plugin allegiance is mob-scoped (profiles need setTarget)
+        }
+        ManagedRecord donor = firstManaged(event.getMother(), event.getFather());
+        if (donor == null) {
+            return;
+        }
+        inheritAllegiance(donor, event.getEntity());
+    }
+
+    /** Summon/split inheritance (best-effort donor search): evoker vexes
+     * (SPELL) and slime children (SLIME_SPLIT) take the nearest managed mob
+     * within 16 blocks — same type required for splits. BREEDING is owned by
+     * onBreed above, which has the exact parents. */
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    public void onCreatureSpawn(CreatureSpawnEvent event) {
+        if (!plugin.getConfig().getBoolean("settings.behavior.enable-custom-allegiance", true)) {
+            return;
+        }
+        if (!(event.getEntity() instanceof Mob)) {
+            return;
+        }
+        var reason = event.getSpawnReason();
+        if (reason == CreatureSpawnEvent.SpawnReason.BREEDING) {
+            return;
+        }
+        String type = null;
+        if (reason == CreatureSpawnEvent.SpawnReason.SLIME_SPLIT) {
+            type = event.getEntity().getType().name();
+        } else if (reason != CreatureSpawnEvent.SpawnReason.SPELL) {
+            return;
+        }
+        java.util.List<DonorCandidate> candidates = new java.util.ArrayList<>();
+        for (ManagedRecord r : managed.values()) {
+            Entity e = Bukkit.getEntity(r.entityUuid());
+            if (!(e instanceof Mob) || !e.isValid() || e.isDead()) {
+                continue;
+            }
+            Location l = e.getLocation();
+            if (l == null || l.getWorld() == null) {
+                continue;
+            }
+            candidates.add(new DonorCandidate(r.entityUuid(), l.getWorld().getName(),
+                    l.getX(), l.getY(), l.getZ(), e.getType().name()));
+        }
+        UUID donorId = nearestDonor(candidates, event.getLocation(), type);
+        if (donorId == null) {
+            return;
+        }
+        ManagedRecord donor = managed.get(donorId);
+        if (donor == null) {
+            return;
+        }
+        inheritAllegiance(donor, event.getEntity());
+    }
+
+    private ManagedRecord firstManaged(LivingEntity... entities) {
+        for (LivingEntity e : entities) {
+            if (e == null) {
+                continue;
+            }
+            ManagedRecord r = managed.get(e.getUniqueId());
+            if (r != null) {
+                return r;
+            }
+        }
+        return null;
+    }
+
+    private void inheritAllegiance(ManagedRecord donor, Entity child) {
+        ManagedRecord r = getOrCreate(child);
+        copyAllegiance(donor, r);
+        // Match the brain to the inherited profile (aware/AI flags live on
+        // the entity; reconcile only asserts aiEnabled, not awareness).
+        if (child instanceof Mob m) {
+            try {
+                applyProfile(m, r.profile(), r);
+            } catch (Exception ignored) {
+                // Best effort: flags are already copied above.
+            }
+        }
+    }
+
+    /** Copies every persistent allegiance/behavior setting. Anchor and
+     * commanded target never transfer: they belong to a position and a
+     * fight, not to a bloodline. Pure and unit tested. */
+    public static void copyAllegiance(ManagedRecord from, ManagedRecord to) {
+        to.owner(from.owner());
+        to.trusted().clear();
+        to.trusted().addAll(from.trusted());
+        to.enemies().clear();
+        to.enemies().addAll(from.enemies());
+        to.allowedTypes().clear();
+        to.allowedTypes().addAll(from.allowedTypes());
+        to.excludedTypes().clear();
+        to.excludedTypes().addAll(from.excludedTypes());
+        to.defendOwner(from.defendOwner());
+        to.defendAllies(from.defendAllies());
+        to.retaliate(from.retaliate());
+        to.attackOwnerTarget(from.attackOwnerTarget());
+        to.pursueOutsideRange(from.pursueOutsideRange());
+        to.clearInvalidTarget(from.clearInvalidTarget());
+        to.friendlyFireProtect(from.friendlyFireProtect());
+        to.profile(from.profile());
+        to.aiEnabled(from.aiEnabled());
+        to.aggressive(from.aggressive());
+    }
+
+    /** Lightweight donor snapshot so the nearest-donor pick is pure and testable. */
+    record DonorCandidate(UUID id, String world, double x, double y, double z, String type) {
+    }
+
+    /** Nearest candidate in the same world (and of the required type, when
+     * given) within 16 blocks — or null. Pure and unit tested. */
+    static UUID nearestDonor(java.util.List<DonorCandidate> candidates, Location at,
+            String type) {
+        if (at == null || at.getWorld() == null) {
+            return null;
+        }
+        String world = at.getWorld().getName();
+        UUID best = null;
+        double bestDist = 16.0 * 16.0;
+        for (DonorCandidate c : candidates) {
+            if (!world.equals(c.world())) {
+                continue;
+            }
+            if (type != null && !type.equals(c.type())) {
+                continue;
+            }
+            double dx = c.x() - at.getX();
+            double dy = c.y() - at.getY();
+            double dz = c.z() - at.getZ();
+            double d = dx * dx + dy * dy + dz * dz;
+            if (d <= bestDist) {
+                bestDist = d;
+                best = c.id();
+            }
+        }
+        return best;
     }
 
     // -------------------------------------------------------- friendly fire
@@ -517,6 +816,7 @@ public class AllegianceService implements Listener {
                 mob.setAware(false);
                 living.setAI(false);
                 record.aiEnabled(false);
+                record.aggressive(false);
                 record.defendOwner(false);
                 record.defendAllies(false);
                 record.retaliate(false);
@@ -528,6 +828,7 @@ public class AllegianceService implements Listener {
                 living.setAI(true);
                 mob.setAware(true);
                 record.aiEnabled(true);
+                record.aggressive(false);
                 record.defendOwner(false);
                 record.defendAllies(false);
                 record.retaliate(false);
@@ -539,6 +840,7 @@ public class AllegianceService implements Listener {
                 living.setAI(true);
                 mob.setAware(true);
                 record.aiEnabled(true);
+                record.aggressive(false);
                 record.defendOwner(true);
                 record.retaliate(true);
                 record.profile(profile);
@@ -548,8 +850,10 @@ public class AllegianceService implements Listener {
                 living.setAI(true);
                 mob.setAware(true);
                 record.aiEnabled(true);
+                record.aggressive(true);
+                record.retaliate(true);
                 record.profile(profile);
-                yield "Aggressive: vanilla targeting rules apply (use allowed/excluded types).";
+                yield "Aggressive: hunts anything nearby that isn't family (plugin-driven, not vanilla).";
             }
             case STATIONARY -> {
                 // STATIONARY is AI-off, not an anchor: the entity still drifts
@@ -558,6 +862,7 @@ public class AllegianceService implements Listener {
                 mob.setTarget(null);
                 living.setAI(false);
                 record.aiEnabled(false);
+                record.aggressive(false);
                 record.defendOwner(false);
                 record.defendAllies(false);
                 record.retaliate(false);
@@ -569,6 +874,7 @@ public class AllegianceService implements Listener {
                 living.setAI(true);
                 mob.setAware(true);
                 record.aiEnabled(true);
+                record.aggressive(false);
                 record.profile(profile);
                 yield "Custom: brain restored, configure each rule individually.";
             }
