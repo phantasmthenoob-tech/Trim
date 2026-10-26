@@ -480,6 +480,298 @@ public final class CommonProperties {
                 return Validators.parseBoolean(input);
             }
         });
+        // ---- age / portal / physics facts ----
+        reg.register(new BaseProperty<Integer>("ticks_lived", "Ticks lived",
+                "Entity age in ticks. Resetting to 1 refreshes age-based behavior.",
+                "All entities",
+                PropertyType.NUMBER, RiskLevel.NORMAL, true) {
+            @Override
+            public Support support(Entity e) {
+                return Support.SUPPORTED;
+            }
+
+            @Override
+            public Integer read(Entity e) {
+                return e.getTicksLived();
+            }
+
+            @Override
+            public ValidationResult validate(Entity e, Integer v) {
+                return Validators.range(v, 1, Integer.MAX_VALUE, "Ticks lived");
+            }
+
+            @Override
+            public void write(Entity e, Integer v) {
+                e.setTicksLived(v);
+            }
+
+            @Override
+            public ParseResult<Integer> parse(String input) {
+                return Validators.parseInt(input, 1, Integer.MAX_VALUE, "ticks lived");
+            }
+        });
+        reg.register(new BaseProperty<Integer>("portal_cooldown", "Portal cooldown",
+                "Ticks before this entity can use a portal again. 0 = can travel now.",
+                "All entities",
+                PropertyType.NUMBER, RiskLevel.NORMAL, true) {
+            @Override
+            public Support support(Entity e) {
+                return Support.SUPPORTED;
+            }
+
+            @Override
+            public Integer read(Entity e) {
+                return e.getPortalCooldown();
+            }
+
+            @Override
+            public ValidationResult validate(Entity e, Integer v) {
+                return Validators.range(v, 0, 100000, "Portal cooldown");
+            }
+
+            @Override
+            public void write(Entity e, Integer v) {
+                e.setPortalCooldown(v);
+            }
+
+            @Override
+            public ParseResult<Integer> parse(String input) {
+                return Validators.parseInt(input, 0, 100000, "portal cooldown");
+            }
+        });
+        reg.register(new BaseProperty<Double>("fall_distance", "Fall distance",
+                "Accumulated fall. Reset to 0 to forgive a fall (no damage on land).",
+                "All entities",
+                PropertyType.NUMBER, RiskLevel.NORMAL, true) {
+            @Override
+            public Support support(Entity e) {
+                return Support.SUPPORTED;
+            }
+
+            @Override
+            public Double read(Entity e) {
+                return (double) e.getFallDistance();
+            }
+
+            @Override
+            public ValidationResult validate(Entity e, Double v) {
+                return Validators.range(v, 0, 100000, "Fall distance");
+            }
+
+            @Override
+            public void write(Entity e, Double v) {
+                e.setFallDistance(v.floatValue());
+            }
+
+            @Override
+            public ParseResult<Double> parse(String input) {
+                return Validators.parseDouble(input, 0, 100000, "fall distance");
+            }
+        });
+        // ---- combat windows (living) ----
+        reg.register(new BaseProperty<Integer>("no_damage_ticks", "No-damage ticks",
+                "Invulnerability window after a hit. 0 = can be hit again now.",
+                "Living entities",
+                PropertyType.NUMBER, RiskLevel.ADVANCED, true) {
+            @Override
+            public Support support(Entity e) {
+                return e instanceof LivingEntity ? Support.SUPPORTED : Support.UNSUPPORTED;
+            }
+
+            @Override
+            public Integer read(Entity e) {
+                return ((LivingEntity) e).getNoDamageTicks();
+            }
+
+            @Override
+            public ValidationResult validate(Entity e, Integer v) {
+                return Validators.range(v, 0, 32767, "No-damage ticks");
+            }
+
+            @Override
+            public void write(Entity e, Integer v) {
+                ((LivingEntity) e).setNoDamageTicks(v);
+            }
+
+            @Override
+            public ParseResult<Integer> parse(String input) {
+                return Validators.parseInt(input, 0, 32767, "no-damage ticks");
+            }
+        });
+        reg.register(new BaseProperty<Integer>("max_no_damage_ticks", "Max no-damage ticks",
+                "Length of the post-hit invulnerability window (default 20).",
+                "Living entities",
+                PropertyType.NUMBER, RiskLevel.ADVANCED, true) {
+            @Override
+            public Support support(Entity e) {
+                return e instanceof LivingEntity ? Support.SUPPORTED : Support.UNSUPPORTED;
+            }
+
+            @Override
+            public Integer read(Entity e) {
+                return ((LivingEntity) e).getMaximumNoDamageTicks();
+            }
+
+            @Override
+            public ValidationResult validate(Entity e, Integer v) {
+                return Validators.range(v, 0, 32767, "Max no-damage ticks");
+            }
+
+            @Override
+            public void write(Entity e, Integer v) {
+                ((LivingEntity) e).setMaximumNoDamageTicks(v);
+            }
+
+            @Override
+            public ParseResult<Integer> parse(String input) {
+                return Validators.parseInt(input, 0, 32767, "max no-damage ticks");
+            }
+        });
+        reg.register(new BaseProperty<Double>("last_damage", "Last damage",
+                "Amount of the last hit taken. Informational for balancing.",
+                "Living entities",
+                PropertyType.NUMBER, RiskLevel.NORMAL, true) {
+            @Override
+            public Support support(Entity e) {
+                return e instanceof LivingEntity ? Support.SUPPORTED : Support.UNSUPPORTED;
+            }
+
+            @Override
+            public Double read(Entity e) {
+                return ((LivingEntity) e).getLastDamage();
+            }
+
+            @Override
+            public ValidationResult validate(Entity e, Double v) {
+                return Validators.range(v, 0, 1024, "Last damage");
+            }
+
+            @Override
+            public void write(Entity e, Double v) {
+                ((LivingEntity) e).setLastDamage(v);
+            }
+
+            @Override
+            public ParseResult<Double> parse(String input) {
+                return Validators.parseDouble(input, 0, 1024, "last damage");
+            }
+        });
+        reg.register(new BaseProperty<Boolean>("can_pickup_items", "Can pick up items",
+                "Whether this mob picks up dropped items.",
+                "Living entities",
+                PropertyType.BOOLEAN, RiskLevel.NORMAL, true) {
+            @Override
+            public Support support(Entity e) {
+                return e instanceof LivingEntity ? Support.SUPPORTED : Support.UNSUPPORTED;
+            }
+
+            @Override
+            public Boolean read(Entity e) {
+                return ((LivingEntity) e).getCanPickupItems();
+            }
+
+            @Override
+            public ValidationResult validate(Entity e, Boolean v) {
+                return ValidationResult.valid();
+            }
+
+            @Override
+            public void write(Entity e, Boolean v) {
+                ((LivingEntity) e).setCanPickupItems(v);
+            }
+
+            @Override
+            public ParseResult<Boolean> parse(String input) {
+                return Validators.parseBoolean(input);
+            }
+        });
+        reg.register(new BaseProperty<Boolean>("collidable", "Collidable",
+                "Off = entities pass through it (still targetable).",
+                "Living entities",
+                PropertyType.BOOLEAN, RiskLevel.NORMAL, true) {
+            @Override
+            public Support support(Entity e) {
+                return e instanceof LivingEntity ? Support.SUPPORTED : Support.UNSUPPORTED;
+            }
+
+            @Override
+            public Boolean read(Entity e) {
+                return ((LivingEntity) e).isCollidable();
+            }
+
+            @Override
+            public ValidationResult validate(Entity e, Boolean v) {
+                return ValidationResult.valid();
+            }
+
+            @Override
+            public void write(Entity e, Boolean v) {
+                ((LivingEntity) e).setCollidable(v);
+            }
+
+            @Override
+            public ParseResult<Boolean> parse(String input) {
+                return Validators.parseBoolean(input);
+            }
+        });
+        reg.register(new BaseProperty<Boolean>("gliding", "Gliding",
+                "Elytra-glide pose. Needs an elytra (or creative flight) to look right.",
+                "Living entities",
+                PropertyType.BOOLEAN, RiskLevel.NORMAL, true) {
+            @Override
+            public Support support(Entity e) {
+                return e instanceof LivingEntity ? Support.SUPPORTED : Support.UNSUPPORTED;
+            }
+
+            @Override
+            public Boolean read(Entity e) {
+                return ((LivingEntity) e).isGliding();
+            }
+
+            @Override
+            public ValidationResult validate(Entity e, Boolean v) {
+                return ValidationResult.valid();
+            }
+
+            @Override
+            public void write(Entity e, Boolean v) {
+                ((LivingEntity) e).setGliding(v);
+            }
+
+            @Override
+            public ParseResult<Boolean> parse(String input) {
+                return Validators.parseBoolean(input);
+            }
+        });
+        reg.register(new BaseProperty<Boolean>("swimming", "Swimming",
+                "Swim pose. Water still decides actual swimming; this is the flag.",
+                "Living entities",
+                PropertyType.BOOLEAN, RiskLevel.NORMAL, true) {
+            @Override
+            public Support support(Entity e) {
+                return e instanceof LivingEntity ? Support.SUPPORTED : Support.UNSUPPORTED;
+            }
+
+            @Override
+            public Boolean read(Entity e) {
+                return ((LivingEntity) e).isSwimming();
+            }
+
+            @Override
+            public ValidationResult validate(Entity e, Boolean v) {
+                return ValidationResult.valid();
+            }
+
+            @Override
+            public void write(Entity e, Boolean v) {
+                ((LivingEntity) e).setSwimming(v);
+            }
+
+            @Override
+            public ParseResult<Boolean> parse(String input) {
+                return Validators.parseBoolean(input);
+            }
+        });
         // ---- read-only identity facts (no setter exists by design) ----
         reg.register(new BaseProperty<String>("entity.uuid", "Entity UUID",
                 "Stable server-assigned identity. Shown for admin/copy use.",

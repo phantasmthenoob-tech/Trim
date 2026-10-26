@@ -133,6 +133,123 @@ class PropertyRegistryTest {
     }
 
     @Test
+    void genericCombatAndPhysicsDiscovery() {
+        Entity living = fake(LivingEntity.class);
+        assertEquals(EntityProperty.Support.SUPPORTED, byId("ticks_lived").support(fake()));
+        assertEquals(EntityProperty.Support.SUPPORTED, byId("portal_cooldown").support(fake()));
+        assertEquals(EntityProperty.Support.SUPPORTED, byId("fall_distance").support(fake()));
+        assertEquals(EntityProperty.Support.SUPPORTED, byId("no_damage_ticks").support(living));
+        assertEquals(EntityProperty.Support.SUPPORTED, byId("max_no_damage_ticks").support(living));
+        assertEquals(EntityProperty.Support.SUPPORTED, byId("last_damage").support(living));
+        assertEquals(EntityProperty.Support.SUPPORTED, byId("can_pickup_items").support(living));
+        assertEquals(EntityProperty.Support.SUPPORTED, byId("collidable").support(living));
+        assertEquals(EntityProperty.Support.SUPPORTED, byId("gliding").support(living));
+        assertEquals(EntityProperty.Support.SUPPORTED, byId("swimming").support(living));
+        assertEquals(EntityProperty.Support.UNSUPPORTED, byId("no_damage_ticks").support(fake()));
+    }
+
+    @Test
+    void newNumericBoundsRejectOutOfRange() {
+        assertFalse(byId("ticks_lived").parse("0").ok());
+        assertTrue(byId("ticks_lived").parse("100").ok());
+        assertFalse(byId("portal_cooldown").parse("-1").ok());
+        assertFalse(byId("fall_distance").parse("-1").ok());
+        assertFalse(byId("fall_distance").parse("NaN").ok());
+        assertFalse(byId("no_damage_ticks").parse("-1").ok());
+        assertFalse(byId("no_damage_ticks").parse("99999").ok());
+        assertFalse(byId("last_damage").parse("-1").ok());
+        assertFalse(byId("creeper.explosion_radius").parse("128").ok());
+        assertTrue(byId("creeper.explosion_radius").parse("3").ok());
+        assertFalse(byId("creeper.max_fuse").parse("0").ok());
+        assertFalse(byId("phantom.size").parse("65").ok());
+        assertTrue(byId("phantom.size").parse("0").ok());
+        assertFalse(byId("tnt.fuse").parse("-1").ok());
+        assertTrue(byId("tnt.fuse").parse("80").ok());
+        assertFalse(byId("explosive.yield").parse("128").ok());
+        assertTrue(byId("explosive.yield").parse("4").ok());
+        assertFalse(byId("item.pickup_delay").parse("32768").ok());
+        assertFalse(byId("bee.anger").parse("-1").ok());
+        assertFalse(byId("boat.max_speed").parse("11").ok());
+        assertTrue(byId("boat.max_speed").parse("0.4").ok());
+        assertFalse(byId("falling.max_damage").parse("-1").ok());
+    }
+
+    @Test
+    void plainEnumParsesWorkHeadless() {
+        // Plain enums need no server: parse is covered here, read/write live.
+        assertTrue(byId("fox.type").parse("red").ok());
+        assertTrue(byId("fox.type").parse("SNOW").ok());
+        assertFalse(byId("fox.type").parse("gray").ok());
+        assertTrue(byId("parrot.variant").parse("blue").ok());
+        assertFalse(byId("parrot.variant").parse("purple").ok());
+        assertTrue(byId("axolotl.variant").parse("blue").ok());
+        assertFalse(byId("axolotl.variant").parse("pink").ok());
+        assertTrue(byId("mushroomcow.variant").parse("brown").ok());
+        assertFalse(byId("mushroomcow.variant").parse("green").ok());
+        assertTrue(byId("boat.type").parse("bamboo").ok());
+        assertFalse(byId("boat.type").parse("steel").ok());
+        assertTrue(byId("wolf.collar").parse("red").ok());
+        assertTrue(byId("cat.collar").parse("blue").ok());
+        assertFalse(byId("wolf.collar").parse("blurple").ok());
+    }
+
+    @Test
+    void entityTypeMismatchIsUnsupported() {
+        Entity fox = fake(org.bukkit.entity.Fox.class);
+        Entity creeper = fake(org.bukkit.entity.Creeper.class);
+        Entity armorStand = fake(org.bukkit.entity.ArmorStand.class);
+        Entity item = fake(org.bukkit.entity.Item.class);
+        Entity boat = fake(org.bukkit.entity.Boat.class);
+        Entity tnt = fake(org.bukkit.entity.TNTPrimed.class);
+        Entity falling = fake(org.bukkit.entity.FallingBlock.class);
+        Entity projectile = fake(org.bukkit.entity.Projectile.class);
+        Entity tameable = fake(org.bukkit.entity.Tameable.class);
+        assertEquals(EntityProperty.Support.SUPPORTED, byId("fox.type").support(fox));
+        assertEquals(EntityProperty.Support.UNSUPPORTED, byId("fox.type").support(creeper));
+        assertEquals(EntityProperty.Support.SUPPORTED,
+                byId("creeper.explosion_radius").support(creeper));
+        assertEquals(EntityProperty.Support.UNSUPPORTED,
+                byId("creeper.explosion_radius").support(fox));
+        assertEquals(EntityProperty.Support.SUPPORTED,
+                byId("armorstand.visible").support(armorStand));
+        assertEquals(EntityProperty.Support.SUPPORTED,
+                byId("armorstand.marker").support(armorStand));
+        assertEquals(EntityProperty.Support.UNSUPPORTED,
+                byId("armorstand.visible").support(fox));
+        assertEquals(EntityProperty.Support.SUPPORTED,
+                byId("item.pickup_delay").support(item));
+        assertEquals(EntityProperty.Support.UNSUPPORTED,
+                byId("item.pickup_delay").support(boat));
+        assertEquals(EntityProperty.Support.SUPPORTED, byId("boat.type").support(boat));
+        assertEquals(EntityProperty.Support.SUPPORTED, byId("tnt.fuse").support(tnt));
+        assertEquals(EntityProperty.Support.SUPPORTED,
+                byId("falling.drop_item").support(falling));
+        assertEquals(EntityProperty.Support.SUPPORTED,
+                byId("projectile.bounce").support(projectile));
+        assertEquals(EntityProperty.Support.READ_ONLY, byId("tame.owner_uuid").support(tameable));
+        assertEquals(EntityProperty.Support.UNSUPPORTED, byId("tame.owner_uuid").support(fox));
+        // Creeper is not an Explosive in Bukkit: no double coverage.
+        assertEquals(EntityProperty.Support.UNSUPPORTED, byId("explosive.yield").support(creeper));
+        assertEquals(EntityProperty.Support.SUPPORTED, byId("explosive.yield").support(tnt));
+        // Love mode is honestly irreversible.
+        assertFalse(byId("breed").reversible());
+        assertEquals(EntityProperty.RiskLevel.DESTRUCTIVE,
+                byId("creeper.explosion_radius").risk());
+        assertEquals(EntityProperty.RiskLevel.DESTRUCTIVE, byId("tnt.fuse").risk());
+        assertEquals(EntityProperty.RiskLevel.DESTRUCTIVE, byId("explosive.yield").risk());
+    }
+
+    @Test
+    void ownerUuidReadOnlyRefusesWrites() {
+        @SuppressWarnings("unchecked")
+        EntityProperty<String> owner = (EntityProperty<String>) byId("tame.owner_uuid");
+        assertThrows(UnsupportedOperationException.class, () -> owner.write(fake(), "x"));
+        String err = PropertyRegistry.apply(null, fake(org.bukkit.entity.Tameable.class), owner,
+                "x", "entitystudio.data.edit", node -> true, null, false);
+        assertNotNull(err);
+    }
+
+    @Test
     void readOnlyPropertiesRefuseWrites() {
         @SuppressWarnings("unchecked")
         EntityProperty<String> uuid = (EntityProperty<String>) byId("entity.uuid");
