@@ -3,7 +3,8 @@
 Shift + right-click an entity, change its properties in a GUI, and watch the
 real entity change. No `/data` memorization.
 
-> **Status: v0.1.0 — foundation + equipment + data + behavior core.**
+> **Status: v0.2.0 — Paper 1.21.11 target; security hardening, friendly-fire
+> guard, universal inventories, read-only advanced data browser.**
 > Roadmap stages 01–04 (core) are implemented; stages 05–06 (rich presets UI,
 > isolated internal-data module) are partially present. See `docs/`.
 
@@ -15,7 +16,7 @@ real entity change. No `/data` memorization.
    then ops can use `/entity`, `/entitystudio`, and shift + right-click editing.
 4. Shift + right-click any entity to open its dashboard.
 
-## What works in v0.1.0
+## What works in v0.2.0
 
 - **Dashboard** — name/type/UUID/coords, health, AI + target state, capabilities,
   warnings, property search, entity removal (confirm, recorded).

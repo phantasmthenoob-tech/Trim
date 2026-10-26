@@ -3,7 +3,7 @@ plugins {
 }
 
 group = "com.entitystudio"
-version = "0.1.0"
+version = "0.2.0"
 description = "Visual entity editor for Minecraft Java 1.21.11 (Paper plugin)"
 
 java {
@@ -19,10 +19,12 @@ repositories {
     }
 }
 
-// Pinned Paper API for the 1.21.x runtime line (loads on 1.21 through 1.21.11).
+// Pinned Paper API for the 1.21.11 server target (verified 2026-10-26:
+// 1.21.11-R0.1-SNAPSHOT exists upstream; Attribute.GENERIC_* constants were
+// removed in this line, migrated to Attribute.MAX_HEALTH etc.).
 // Do NOT float this dependency: version-sensitive internals are isolated in
 // the compatibility package and tested against this exact artifact.
-val paperApi = "io.papermc.paper:paper-api:1.21.1-R0.1-SNAPSHOT"
+val paperApi = "io.papermc.paper:paper-api:1.21.11-R0.1-SNAPSHOT"
 
 dependencies {
     // Paper API is provided by the server at runtime.

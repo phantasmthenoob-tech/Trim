@@ -1,4 +1,4 @@
-# Entity Studio — property support (v0.1.0)
+# Entity Studio — property support (v0.2.0)
 
 `SUPPORTED` = public-API read + write. `PARTIAL` = readable but approximate
 rollback or conditional effect (shown with a warning). Anything else is hidden

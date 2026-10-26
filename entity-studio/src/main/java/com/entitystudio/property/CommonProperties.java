@@ -52,12 +52,12 @@ public final class CommonProperties {
             @Override
             protected boolean supports(Entity e) {
                 return e instanceof LivingEntity l
-                        && l.getAttribute(Attribute.GENERIC_MAX_HEALTH) != null;
+                        && l.getAttribute(Attribute.MAX_HEALTH) != null;
             }
 
             @Override
             public Double read(Entity e) {
-                return ((LivingEntity) e).getAttribute(Attribute.GENERIC_MAX_HEALTH).getValue();
+                return ((LivingEntity) e).getAttribute(Attribute.MAX_HEALTH).getValue();
             }
 
             @Override
@@ -67,7 +67,7 @@ public final class CommonProperties {
 
             @Override
             public void write(Entity e, Double v) {
-                AttributeInstance a = ((LivingEntity) e).getAttribute(Attribute.GENERIC_MAX_HEALTH);
+                AttributeInstance a = ((LivingEntity) e).getAttribute(Attribute.MAX_HEALTH);
                 a.setBaseValue(v);
                 LivingEntity l = (LivingEntity) e;
                 if (l.getHealth() > v) {
