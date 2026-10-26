@@ -2073,5 +2073,84 @@ public final class SpecificProperties {
                 return Validators.parseBoolean(input);
             }
         });
+        // ---- bosses (per-entity gates: dragons get dragon controls alongside
+        // every generic living-entity property, never an empty page) ----
+        reg.register(new BaseProperty<String>("dragon.phase", "Dragon phase",
+                "Flight/attack phase of the fight (circling, strafing, charging, ...).",
+                "Ender dragons",
+                PropertyType.ENUM, RiskLevel.ADVANCED, true) {
+            @Override
+            public Support support(Entity e) {
+                return e instanceof org.bukkit.entity.EnderDragon ? Support.SUPPORTED
+                        : Support.UNSUPPORTED;
+            }
+
+            @Override
+            public String read(Entity e) {
+                org.bukkit.entity.EnderDragon.Phase phase =
+                        ((org.bukkit.entity.EnderDragon) e).getPhase();
+                return phase == null ? "?" : phase.name().toLowerCase(Locale.ROOT);
+            }
+
+            @Override
+            public ValidationResult validate(Entity e, String v) {
+                try {
+                    org.bukkit.entity.EnderDragon.Phase.valueOf(v.toUpperCase(Locale.ROOT));
+                    return ValidationResult.valid();
+                } catch (IllegalArgumentException ex) {
+                    return ValidationResult.fail("Unknown phase '" + v + "'.");
+                }
+            }
+
+            @Override
+            public void write(Entity e, String v) {
+                ((org.bukkit.entity.EnderDragon) e).setPhase(
+                        org.bukkit.entity.EnderDragon.Phase.valueOf(v.toUpperCase(Locale.ROOT)));
+            }
+
+            @Override
+            public ParseResult<String> parse(String input) {
+                String s = input.trim().toLowerCase(Locale.ROOT);
+                try {
+                    org.bukkit.entity.EnderDragon.Phase.valueOf(s.toUpperCase(Locale.ROOT));
+                    return ParseResult.ok(s);
+                } catch (IllegalArgumentException ex) {
+                    return ParseResult.fail("Unknown phase. Use one of: "
+                            + Arrays.stream(org.bukkit.entity.EnderDragon.Phase.values())
+                                    .map(p -> p.name().toLowerCase(Locale.ROOT))
+                                    .collect(Collectors.joining(", ")));
+                }
+            }
+        });
+        reg.register(new BaseProperty<Integer>("wither.invulnerable_ticks", "Wither armor ticks",
+                "Spawn-armor timer. 0 = vulnerable right now.",
+                "Withers",
+                PropertyType.NUMBER, RiskLevel.NORMAL, true) {
+            @Override
+            public Support support(Entity e) {
+                return e instanceof org.bukkit.entity.Wither ? Support.SUPPORTED
+                        : Support.UNSUPPORTED;
+            }
+
+            @Override
+            public Integer read(Entity e) {
+                return ((org.bukkit.entity.Wither) e).getInvulnerableTicks();
+            }
+
+            @Override
+            public ValidationResult validate(Entity e, Integer v) {
+                return Validators.range(v, 0, 72000, "Invulnerable ticks");
+            }
+
+            @Override
+            public void write(Entity e, Integer v) {
+                ((org.bukkit.entity.Wither) e).setInvulnerableTicks(v);
+            }
+
+            @Override
+            public ParseResult<Integer> parse(String input) {
+                return Validators.parseInt(input, 0, 72000, "invulnerable ticks");
+            }
+        });
     }
 }

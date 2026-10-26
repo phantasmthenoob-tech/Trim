@@ -51,6 +51,16 @@ enemy rule.
 - **A `STATIONARY` mob with retaliate re-enabled** accepts a target it
   cannot path to (AI off). Harmless but pointless; the GUI leaves the
   combination available because the flags are orthogonal.
+- **Commanded targets stick.** Every allegiance-assigned target (owner
+  command, defense, retaliation) is remembered on the record. If vanilla
+  AI drops it — lost sight, path timeout, chunk flicker — the reconcile
+  timer re-asserts it while the mob has no target, the target is still
+  legal (owner/trusted/type-filter re-checked), in the same world, and
+  within 64 blocks (`REASSERT_RANGE`). It never overrides a different
+  target vanilla acquired, and never teleports: out-of-range orders wait
+  until the target comes back in reach. Orders clear when the target dies,
+  unloads-plus-invalidates, changes worlds, or becomes forbidden.
+  Command memory is transient by design and is not persisted.
 - **Invalid/unloaded/dead targets** are dropped at every layer:
   `engageable()` rejects invalid, dead, or self targets; the reconcile
   timer skips entities that resolve to null; anchors never teleport across
@@ -64,7 +74,11 @@ Two separate concepts, combinable:
 - **Soft anchor**: no teleport, ever. Past the tolerance
   (`settings.behavior.soft-anchor-tolerance`, default 3 blocks) the mob's
   target is cleared and lateral velocity is zeroed so it settles instead
-  of pursuing. Gravity, knockback, and vehicles still move it.
+  of pursuing — **unless it holds an active commanded target**, which wins
+  over anchoring until the fight ends. Gravity, knockback, and vehicles
+  still move it. Long pursuits also want a raised `follow_range`
+  attribute (attributes page); the plugin never rewrites attributes behind
+your back.
 - **Hard anchor**: teleports back beyond ~0.2 blocks of drift
   (`shouldCorrectHard`) and zeroes velocity, holding exact position +
   rotation. Can jitter against strong knockback or riding — that is the

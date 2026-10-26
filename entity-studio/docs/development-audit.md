@@ -340,6 +340,73 @@ headless on Paper 1.21.11 (javac + JUnit launcher; no Gradle dist in VM).
 profile-brain application, seed-preset file creation, cross-type preset
 application on mobs.
 
+## 15. Read-only advanced-data inspector (2026-10-26) — public API only
+
+**API investigation (evidence, not guesses):** `javap` against the pinned
+`paper-api:1.21.11-R0.1-SNAPSHOT` jar confirms `Entity#getAsString()`,
+`Entity#createSnapshot()` → `EntitySnapshot#getAsString()`,
+`Entity#getScoreboardTags`, and the full `PersistentDataType` family
+(incl. `LIST.*` and `TAG_CONTAINER`). Conclusion: the full entity data is
+readable through the public contract — no NMS/reflection probe was needed,
+so none ships. Reads sit behind the narrow `data.DataInspector` seam, which
+fails closed per section and documents where a version-gated probe would go.
+
+**New `data` package (pure, tested):** `SnbtParser` (recursive-descent SNBT →
+typed scalars, strict on malformed input, 64 KiB / 4,000-node / depth-8 caps),
+`DataBrowser` (sorted flatten with types, per-section budgets, search,
+200/400-char truncation, credential-pattern redaction at build time),
+`PublicApiInspector` (identity/tags/pdc/snbt sections; every getter isolated;
+other-player targets pre-redacted without `player.edit`). GUI re-rendered:
+section icons, type/source/status lore, row-count help, redacted rows refuse
+chat echo. `DataRows` removed; its behaviors (sorting, depth cap, row cap,
+pretty-printing, null handling) are covered by the new tests.
+
+**Tests:** `SnbtParserTest` (5), `DataBrowserTest` (5), `PublicApiInspectorTest`
+(4: null-getter proxies → UNAVAILABLE, player redaction on/off, PDC typed vs
+unknown reads). **123/123 green** headless (was 115; −6 retired DataRows
+tests, +14 new). Docs: new `docs/advanced-data.md` (API table, caps,
+redaction, player policy, `allow-internal-access` reserved-off); README +
+`property-support.md` updated.
+**Live-server needs:** open the page for zombie/horse/chest-boat/villager,
+search/pagination/row-click chat echo, no console errors; snapshot refusal
+for players on implementations that reject it.
+
+## 16. Targeting retention, equipment honesty, boss properties (2026-10-26)
+
+**Targeting (the "loses interest" bug):** allegiance-assigned targets are
+now remembered on the record (`commandedTarget`, transient — never
+persisted) and the reconcile timer re-asserts a *lost* order while the mob
+is target-less, the target is still legal (exclusions + type filters
+re-checked), same-world, and within 64 blocks. It never overrides a
+different target vanilla acquired and never teleports. Two more fixes in
+the same area: the soft anchor no longer clears an active commanded target
+(it was yanking guards off owner-ordered kills every cycle), and death now
+clears `commandedTarget` references to the dead entity.
+
+**Equipment honesty:** every `getEquipment()` call goes through
+`safeEquipment()` (exotic entities can throw, not just return null); the
+equipment page explains entities with no vanilla slots instead of dying
+silently. Swaps are write-verified (`InventoryOps.slotMatches`): if vanilla
+discards the item (e.g. armor on a dragon — no render slots exist), the
+player is told and the cursor item is restored. Nothing is lost silently.
+
+**Boss coverage:** new `dragon.phase` (validated against the live `Phase`
+enum) and `wither.invulnerable_ticks` properties; generic living-entity
+properties (health, AI, ...) were verified to list for dragons (EnderDragon
+is a `Mob`), so boss pages are never empty. Warden anger stays out:
+per-entity anger needs a target-entity input the scalar editor cannot
+represent honestly.
+
+**Tests:** `CommandedTargetTest` (range gate + command lifecycle),
+`BossPropertiesTest` (dragon/wither gating + live-enum parse, headless via
+real `Phase.valueOf`), `slotMatches` cases in `InventoryOpsTest`.
+**129/129 green** headless (was 123). Docs: `behavior.md` (command memory,
+anchor yield, follow-range note), `property-support.md`, README bullets.
+**Live-server needs:** guard holds an owner-ordered target through sight
+loss; soft-anchored guard keeps pursuing while ordered; armor swap on
+zombie vs honest discard message on dragon; dragon phase change visible
+in-fight.
+
 ## 8. Prioritized blockers for next stages
 
 1. **P1 — live-server verification.** Headless green is not proof on a

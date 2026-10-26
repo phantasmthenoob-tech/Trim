@@ -163,7 +163,79 @@ public class AllegianceService implements Listener {
             } else if (!record.aiEnabled() && living.hasAI()) {
                 living.setAI(false);
             }
+            reassertCommand(mob, record);
         }
+    }
+
+    /** Assigns a target through allegiance rules and remembers the order, so
+     * the reconcile timer can restore it when vanilla AI drops it (lost
+     * sight, path timeout, chunk flicker). Vanilla keeps a differently
+     * acquired target — only a *lost* order is restored, never fought over. */
+    private static void assign(Mob mob, ManagedRecord record, LivingEntity target) {
+        mob.setTarget(target);
+        record.command(target.getUniqueId(), System.currentTimeMillis());
+    }
+
+    /** Maximum distance (blocks) at which a lost commanded target is
+     * re-asserted. Beyond this the mob could never path back; re-asserting
+     * would just spin vanilla targeting forever. */
+    static final double REASSERT_RANGE = 64.0;
+
+    private static void reassertCommand(Mob mob, ManagedRecord record) {
+        UUID cmd = record.commandedTarget();
+        if (cmd == null) {
+            return;
+        }
+        Entity target = Bukkit.getEntity(cmd);
+        if (!(target instanceof LivingEntity living) || !target.isValid() || target.isDead()) {
+            record.clearCommand();
+            return;
+        }
+        if (target.getWorld() == null || mob.getWorld() == null
+                || !target.getWorld().equals(mob.getWorld())) {
+            record.clearCommand(); // cross-world orders are meaningless aggro
+            return;
+        }
+        if (!engageableStatic(mob, living, record)) {
+            // Became illegal (allied now, type-filtered, ...): drop the order
+            // instead of re-asserting a forbidden target forever.
+            record.clearCommand();
+            return;
+        }
+        LivingEntity current = mob.getTarget();
+        if (current != null) {
+            return; // still on it, or vanilla acquired something else: respect it
+        }
+        double distSq = mob.getLocation().distanceSquared(target.getLocation());
+        if (!shouldReassert(true, distSq)) {
+            return; // too far to path: keep the order, retry when closer
+        }
+        mob.setTarget(living);
+    }
+
+    /** Pure range gate for commanded-target re-assertion (headless tested). */
+    public static boolean shouldReassert(boolean sameWorld, double distSq) {
+        return sameWorld && distSq >= 0 && distSq <= REASSERT_RANGE * REASSERT_RANGE;
+    }
+
+    /** engageable() without an instance (reconcile path is static context). */
+    private static boolean engageableStatic(Mob mob, LivingEntity target, ManagedRecord record) {
+        if (!target.isValid() || target.isDead() || target.equals(mob)) {
+            return false;
+        }
+        if (target.getWorld() == null || mob.getWorld() == null
+                || !target.getWorld().equals(mob.getWorld())) {
+            return false;
+        }
+        UUID tid = target.getUniqueId();
+        AllegianceRules.TargetContext ctx = new AllegianceRules.TargetContext(true,
+                record.owner() != null && record.owner().equals(tid),
+                record.trusted().contains(tid),
+                true,
+                false,
+                target.getType().name(),
+                record.allowedTypes(), record.excludedTypes());
+        return AllegianceRules.evaluate(ctx) == AllegianceRules.Decision.ATTACK;
     }
 
     // ------------------------------------------------------------ retaliation
@@ -192,7 +264,7 @@ public class AllegianceService implements Listener {
             // Case 1: the managed mob itself was attacked → retaliate.
             if (record.retaliate() && victim.getUniqueId().equals(record.entityUuid())) {
                 if (engageable(mob, attacker, record)) {
-                    mob.setTarget(attacker);
+                    assign(mob, record, attacker);
                 }
                 continue;
             }
@@ -202,7 +274,7 @@ public class AllegianceService implements Listener {
                     && AllegianceRules.shouldDefend(attacker.getUniqueId(), true,
                             record.trusted(), java.util.Set.of(record.owner()))
                     && engageable(mob, attacker, record)) {
-                mob.setTarget(attacker);
+                assign(mob, record, attacker);
                 continue;
             }
             // Case 3: a trusted ally was attacked → defend allies.
@@ -210,14 +282,14 @@ public class AllegianceService implements Listener {
                     && AllegianceRules.shouldDefend(attacker.getUniqueId(), true,
                             record.trusted(), java.util.Set.of(record.owner()))
                     && engageable(mob, attacker, record)) {
-                mob.setTarget(attacker);
+                assign(mob, record, attacker);
             }
             // Case 4: owner attacks something → guard joins in.
             if (record.attackOwnerTarget() && record.owner() != null
                     && attacker.getUniqueId().equals(record.owner())
                     && victim instanceof LivingEntity target
                     && engageable(mob, target, record)) {
-                mob.setTarget(target);
+                assign(mob, record, target);
             }
         }
     }
@@ -227,22 +299,7 @@ public class AllegianceService implements Listener {
      * Cross-world targets are refused: the mob could never path to them,
      * and a cross-dimension target assignment is meaningless aggro. */
     private boolean engageable(Mob mob, LivingEntity target, ManagedRecord record) {
-        if (!target.isValid() || target.isDead() || target.equals(mob)) {
-            return false;
-        }
-        if (target.getWorld() == null || mob.getWorld() == null
-                || !target.getWorld().equals(mob.getWorld())) {
-            return false;
-        }
-        UUID tid = target.getUniqueId();
-        AllegianceRules.TargetContext ctx = new AllegianceRules.TargetContext(true,
-                record.owner() != null && record.owner().equals(tid),
-                record.trusted().contains(tid),
-                true,
-                false,
-                target.getType().name(),
-                record.allowedTypes(), record.excludedTypes());
-        return AllegianceRules.evaluate(ctx) == AllegianceRules.Decision.ATTACK;
+        return engageableStatic(mob, target, record);
     }
 
     // -------------------------------------------------------- friendly fire
@@ -329,7 +386,22 @@ public class AllegianceService implements Listener {
             if (dead.equals(r.owner())) {
                 r.owner(null);
             }
+            if (dead.equals(r.commandedTarget())) {
+                r.clearCommand();
+            }
         }
+    }
+
+    /** True when the record holds a live, same-world commanded target.
+     * Used so soft anchors (and only they) yield to owner orders. */
+    static boolean hasActiveCommand(Entity entity, ManagedRecord record) {
+        UUID cmd = record.commandedTarget();
+        if (cmd == null) {
+            return false;
+        }
+        Entity target = Bukkit.getEntity(cmd);
+        return target != null && target.isValid() && !target.isDead()
+                && target.getWorld() != null && target.getWorld().equals(entity.getWorld());
     }
 
     /** Pure anchor-distance decisions, extracted for headless tests.
@@ -402,12 +474,15 @@ public class AllegianceService implements Listener {
                     entity.setVelocity(new org.bukkit.util.Vector(0, 0, 0));
                 }
             } else if (shouldSettleSoft(distSq, tolerance)) {
-                // Soft anchor: stop pursuit and let it settle nearby instead of
-                // teleporting — avoids jitter and fights with vanilla movement.
-                if (entity instanceof Mob mob) {
+                // Soft anchor: settle drift instead of teleporting — but never
+                // steal an active commanded target. Owner orders win over
+                // anchoring; the anchor still holds once the fight is over.
+                if (entity instanceof Mob mob && !hasActiveCommand(entity, record)) {
                     mob.setTarget(null);
                 }
-                entity.setVelocity(new org.bukkit.util.Vector(0, entity.getVelocity().getY(), 0));
+                if (!hasActiveCommand(entity, record)) {
+                    entity.setVelocity(new org.bukkit.util.Vector(0, entity.getVelocity().getY(), 0));
+                }
             }
         }
     }

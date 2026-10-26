@@ -42,8 +42,12 @@ real entity change. No `/data` memorization.
   guaranteed: a Bukkit toggle is not a behavior mode.
 - **Trades** — view/reset/remove offers, add offer from held item, profession
   and level via properties.
-- **Advanced data (read-only)** — PDC entries, derived facts, filter +
-  paging; click a row for the full value in chat. No write path by design.
+- **Advanced data (read-only)** — identity facts, scoreboard tags, PDC
+  entries (scalars, arrays, lists, nested containers), and the full entity
+  SNBT via the public `Entity#getAsString()`, parsed for display. Rows show
+  type/source/status, sensitive keys and other players' data are redacted,
+  filter + paging; click a row for the full value in chat. No write path,
+  no NMS/reflection — see `docs/advanced-data.md` for the exact API table.
 - **History** — every edit records actor/entity UUID, type, timestamp, and
   before/after; newest-first bounded per-player undo with re-checked
   permissions; honest "cannot be undone" for the rest. Exact restore

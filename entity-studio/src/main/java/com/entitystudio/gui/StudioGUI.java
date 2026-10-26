@@ -4,6 +4,10 @@ import com.entitystudio.EntityStudioPlugin;
 import com.entitystudio.behavior.ManagedRecord;
 import com.entitystudio.capability.Capability;
 import com.entitystudio.capability.CapabilityRegistry;
+import com.entitystudio.data.DataBrowser;
+import com.entitystudio.data.DataField;
+import com.entitystudio.data.DataStatus;
+import com.entitystudio.data.PublicApiInspector;
 import com.entitystudio.history.EditRecord;
 import com.entitystudio.history.HistoryService;
 import com.entitystudio.permission.StudioPermissions;
@@ -38,12 +42,8 @@ import org.bukkit.inventory.meta.ItemMeta;
 
 import java.util.ArrayList;
 import java.util.EnumSet;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import org.bukkit.NamespacedKey;
-import org.bukkit.persistence.PersistentDataContainer;
-import org.bukkit.persistence.PersistentDataType;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
@@ -412,8 +412,12 @@ public class StudioGUI implements Listener {
     // --------------------------------------------------------------- equipment
 
     public void openEquipment(Player player, Entity entity) {
-        if (!(entity instanceof LivingEntity living) || living.getEquipment() == null) {
-            plugin.send(player, "<red>This entity has no equipment.");
+        LivingEntity living = entity instanceof LivingEntity l ? l : null;
+        EntityEquipment eq = living == null ? null : safeEquipment(living);
+        if (eq == null) {
+            plugin.send(player, "<red>This entity has no equipment slots.");
+            plugin.send(player, "<gray>Vanilla gives this entity type nowhere to wear armor —"
+                    + " use <white>Inventory<gray> (plugin stash) for storage instead.");
             return;
         }
         if (!plugin.permitted(player, StudioPermissions.INV_VIEW)) {
@@ -425,7 +429,6 @@ public class StudioGUI implements Listener {
         Inventory inv = Bukkit.createInventory(holder, 27,
                 plugin.mm().deserialize("<dark_gray>Equipment"));
         holder.inv = inv;
-        EntityEquipment eq = living.getEquipment();
         ItemStack[] slots = { eq.getItemInMainHand(), eq.getItemInOffHand(), eq.getHelmet(),
                 eq.getChestplate(), eq.getLeggings(), eq.getBoots() };
         for (int i = 0; i < 6; i++) {
@@ -1121,7 +1124,7 @@ public class StudioGUI implements Listener {
 
     /** Edits the equipment slot's live stack. idx follows EQUIP_SLOTS order. */
     public void openItemEditor(Player player, Entity entity, int idx) {
-        if (!(entity instanceof LivingEntity living) || living.getEquipment() == null) {
+        if (!(entity instanceof LivingEntity living) || safeEquipment(living) == null) {
             return;
         }
         if (!plugin.permitted(player, StudioPermissions.INV_VIEW)) {
@@ -1171,10 +1174,12 @@ public class StudioGUI implements Listener {
 
     // --------------------------------------------------- advanced data (read-only)
 
-    /** Read-only inspector: PDC entries, Bukkit serialization snapshot, and a
-     * few derived facts. Getters only — this page has no write path, and the
-     * raw serialize() map is rendered, never written back (writing a partial
-     * snapshot could erase unknown fields). */
+    /** Read-only inspector over the public Bukkit/Paper API only: identity
+     * facts, scoreboard tags, the PersistentDataContainer, and the full entity
+     * SNBT via Entity#getAsString(), parsed for display. Getters only — this
+     * page has no write path (writing a partial snapshot could erase unknown
+     * fields), uses no NMS or reflection, and redacts sensitive keys plus
+     * other players' private data instead of showing it. */
     public void openAdvanced(Player player, Entity entity, String filter, int page) {
         if (!plugin.getConfig().getBoolean("settings.advanced-data.enabled", true)) {
             plugin.send(player, "<gray>Advanced data is disabled in config.");
@@ -1185,7 +1190,7 @@ public class StudioGUI implements Listener {
             return;
         }
         plugin.sessions().setPage(player.getUniqueId(), "advanced");
-        List<DataRows.Row> shown = filteredAdvancedRows(entity, filter);
+        List<DataField> shown = filteredAdvancedRows(player, entity, filter);
         int pages = ContainerPages.pageCount(shown.size());
         page = ContainerPages.clampPage(page, shown.size());
         GuiHolder holder = new GuiHolder(Page.ADVANCED, entity.getUniqueId(), filter, page);
@@ -1197,14 +1202,17 @@ public class StudioGUI implements Listener {
         holder.inv = inv;
         int start = ContainerPages.startIndex(page, shown.size());
         for (int i = 0; i < ContainerPages.PAGE_CONTENT && start + i < shown.size(); i++) {
-            DataRows.Row r = shown.get(start + i);
-            inv.setItem(i, named(Material.PAPER, "<white>" + escape(trunc(r.path(), 40)),
-                    "<gray>" + escape(trunc(r.value(), 60)),
+            DataField r = shown.get(start + i);
+            inv.setItem(i, named(advancedIcon(r.section()),
+                    "<white>" + escape(trunc(r.path(), 34)),
+                    "<gray>" + escape(r.type()) + " · " + escape(r.source()) + statusTag(r),
+                    "<white>" + escape(trunc(r.value(), 60)),
                     "<dark_gray>Click: full value in chat"));
         }
         inv.setItem(GuiNav.BACK_54, navBack());
-        inv.setItem(GuiNav.HELP_54, helpItem("Read-only: PDC + supported facts.",
-                "No write path — click a row for full value."));
+        inv.setItem(GuiNav.HELP_54, helpItem("Read-only: public API facts only.",
+                "No write path · no internals · sensitive data redacted.",
+                "<gray>" + shown.size() + " rows (paginated, searchable)"));
         if (ContainerPages.hasPrev(page, shown.size())) {
             inv.setItem(GuiNav.PREV_54, prevButton(page, pages));
         }
@@ -1224,83 +1232,30 @@ public class StudioGUI implements Listener {
         player.openInventory(inv);
     }
 
-    private List<DataRows.Row> filteredAdvancedRows(Entity entity, String filter) {
-        String f = filter == null ? "" : filter.toLowerCase();
-        List<DataRows.Row> out = new ArrayList<>();
-        for (DataRows.Row r : collectAdvancedRows(entity)) {
-            if (f.isBlank() || r.path().toLowerCase().contains(f)
-                    || r.value().toLowerCase().contains(f)) {
-                out.add(r);
-            }
-        }
-        return out;
+    private List<DataField> filteredAdvancedRows(Player viewer, Entity entity, String filter) {
+        boolean canSee = !(entity instanceof Player target
+                && !target.getUniqueId().equals(viewer.getUniqueId()))
+                || plugin.permitted(viewer, StudioPermissions.PLAYER_EDIT);
+        return DataBrowser.filter(
+                PublicApiInspector.INSTANCE.inspect(entity, canSee), filter);
     }
 
-    private static List<DataRows.Row> collectAdvancedRows(Entity entity) {
-        Map<String, Object> all = new LinkedHashMap<>();
-        Map<String, Object> pdc = new LinkedHashMap<>();
-        try {
-            PersistentDataContainer c = entity.getPersistentDataContainer();
-            for (NamespacedKey key : c.getKeys()) {
-                pdc.put(key.getNamespace() + ":" + key.getKey(), readPdc(c, key));
-            }
-        } catch (Exception e) {
-            pdc.put("<error>", String.valueOf(e));
-        }
-        all.put("pdc", pdc);
-        // NOTE: no raw-NBT or serialize-and-rewrite path here on purpose.
-        // Paper's public API has no safe universal readable snapshot, so the
-        // browser covers PDC + supported getters only (see docs/property-support.md).
-        Map<String, Object> info = new LinkedHashMap<>();
-        info.put("class", entity.getClass().getName());
-        info.put("entity-id", entity.getEntityId());
-        info.put("uuid", entity.getUniqueId().toString());
-        info.put("ticks-lived", entity.getTicksLived());
-        info.put("velocity", String.valueOf(entity.getVelocity()));
-        info.put("passengers", entity.getPassengers().size());
-        info.put("vehicle", entity.getVehicle() == null ? "none"
-                : entity.getVehicle().getType().name().toLowerCase());
-        info.put("portal-cooldown", entity.getPortalCooldown());
-        all.put("info", info);
-        return DataRows.flatten(all);
+    private static Material advancedIcon(String section) {
+        return switch (section) {
+            case "identity" -> Material.NAME_TAG;
+            case "pdc" -> Material.ENDER_CHEST;
+            case "snbt" -> Material.COMMAND_BLOCK;
+            default -> Material.PAPER;
+        };
     }
 
-    private static Object readPdc(PersistentDataContainer c, NamespacedKey key) {
-        try {
-            if (c.has(key, PersistentDataType.STRING)) {
-                return c.get(key, PersistentDataType.STRING);
-            }
-            if (c.has(key, PersistentDataType.INTEGER)) {
-                return c.get(key, PersistentDataType.INTEGER);
-            }
-            if (c.has(key, PersistentDataType.LONG)) {
-                return c.get(key, PersistentDataType.LONG);
-            }
-            if (c.has(key, PersistentDataType.DOUBLE)) {
-                return c.get(key, PersistentDataType.DOUBLE);
-            }
-            if (c.has(key, PersistentDataType.FLOAT)) {
-                return c.get(key, PersistentDataType.FLOAT);
-            }
-            if (c.has(key, PersistentDataType.SHORT)) {
-                return c.get(key, PersistentDataType.SHORT);
-            }
-            if (c.has(key, PersistentDataType.BYTE)) {
-                return c.get(key, PersistentDataType.BYTE);
-            }
-            if (c.has(key, PersistentDataType.INTEGER_ARRAY)) {
-                return c.get(key, PersistentDataType.INTEGER_ARRAY);
-            }
-            if (c.has(key, PersistentDataType.LONG_ARRAY)) {
-                return c.get(key, PersistentDataType.LONG_ARRAY);
-            }
-            if (c.has(key, PersistentDataType.BYTE_ARRAY)) {
-                return c.get(key, PersistentDataType.BYTE_ARRAY);
-            }
-        } catch (Exception ignored) {
-            // fall through to unreadable
-        }
-        return "<unreadable type>";
+    private static String statusTag(DataField r) {
+        return switch (r.status()) {
+            case READABLE -> "";
+            case REDACTED -> " <red>(redacted)";
+            case UNAVAILABLE -> " <red>(unavailable)";
+            case UNSUPPORTED -> " <gray>(unsupported)";
+        };
     }
 
     private void clickAdvanced(Player player, Entity entity, GuiHolder holder, int slot) {
@@ -1308,7 +1263,7 @@ public class StudioGUI implements Listener {
             openDashboard(player, entity);
             return;
         }
-        List<DataRows.Row> shown = filteredAdvancedRows(entity, holder.data);
+        List<DataField> shown = filteredAdvancedRows(player, entity, holder.data);
         if (slot == 48 && ContainerPages.hasPrev(holder.pageNum, shown.size())) {
             openAdvanced(player, entity, holder.data, holder.pageNum - 1);
             return;
@@ -1329,9 +1284,13 @@ public class StudioGUI implements Listener {
         if (idx < 0 || idx >= shown.size()) {
             return;
         }
-        DataRows.Row r = shown.get(idx);
-        plugin.send(player, "<aqua>" + escape(r.path()) + "<gray> = <white>"
-                + escape(trunc(r.value(), 400)));
+        DataField r = shown.get(idx);
+        if (r.status() == DataStatus.REDACTED) {
+            plugin.send(player, "<gray>" + escape(r.path()) + " is <red>redacted<gray>.");
+            return;
+        }
+        plugin.send(player, "<aqua>" + escape(r.path()) + " <gray>(" + escape(r.type())
+                + ") <gray>= <white>" + escape(trunc(r.value(), DataBrowser.CHAT_CHARS)));
     }
 
     public void openHistory(Player player, Entity entity) {
@@ -1858,7 +1817,7 @@ public class StudioGUI implements Listener {
 
     private void clickEquipment(Player player, Entity entity, int slot, boolean right,
             boolean shift, ItemStack clicked) {
-        if (!(entity instanceof LivingEntity living) || living.getEquipment() == null) {
+        if (!(entity instanceof LivingEntity living) || safeEquipment(living) == null) {
             return;
         }
         if (slot == 8) {
@@ -1892,7 +1851,7 @@ public class StudioGUI implements Listener {
                     StudioPermissions.INV_EDIT, (p, e) -> {
                         LivingEntity l = (LivingEntity) e;
                         snapshotEquipment(p, e);
-                        EntityEquipment eq = l.getEquipment();
+                        EntityEquipment eq = safeEquipment(l);
                         eq.setItemInMainHand(null);
                         eq.setItemInOffHand(null);
                         eq.setHelmet(null);
@@ -1932,7 +1891,7 @@ public class StudioGUI implements Listener {
             plugin.send(player, plugin.msg("no-permission"));
             return;
         }
-        if (!(entity instanceof LivingEntity living) || living.getEquipment() == null) {
+        if (!(entity instanceof LivingEntity living) || safeEquipment(living) == null) {
             return;
         }
         ItemStack cursor = player.getItemOnCursor();
@@ -1948,6 +1907,16 @@ public class StudioGUI implements Listener {
                     now == null ? emptySlot(EQUIP_NAMES[idx]) : now.clone());
         }
         ItemStack after = slotStack(living, idx);
+        ItemStack want = isAir(cursor) ? null : cursor;
+        if (!InventoryOps.slotMatches(want == null ? null : want.getType().name(),
+                want == null ? 0 : want.getAmount(),
+                after == null ? null : after.getType().name(),
+                after == null ? 0 : after.getAmount())) {
+            plugin.send(player, "<yellow>That entity ignored the item — vanilla discards"
+                    + " equipment for this entity type. Nothing was lost:"
+                    + " it is still on your cursor.");
+            player.setItemOnCursor(cursor);
+        }
         String o = old == null ? "empty" : old.getType().name().toLowerCase();
         String n = after == null ? "empty" : after.getType().name().toLowerCase();
         if (plugin.getConfig().getBoolean("settings.history.enabled", true)) {
@@ -1964,7 +1933,7 @@ public class StudioGUI implements Listener {
     }
 
     private void snapshotEquipment(Player player, Entity entity) {
-        if (!(entity instanceof LivingEntity living) || living.getEquipment() == null) {
+        if (!(entity instanceof LivingEntity living) || safeEquipment(living) == null) {
             return;
         }
         ItemStack[] snap = new ItemStack[6];
@@ -2002,7 +1971,7 @@ public class StudioGUI implements Listener {
             plugin.send(player, plugin.msg("no-permission"));
             return;
         }
-        EntityEquipment eq = mob.getEquipment();
+        EntityEquipment eq = safeEquipment(mob);
         if (eq == null) {
             return;
         }
@@ -2044,7 +2013,7 @@ public class StudioGUI implements Listener {
     }
 
     private void setDropChance(Mob mob, int idx, float v) {
-        EntityEquipment eq = mob.getEquipment();
+        EntityEquipment eq = safeEquipment(mob);
         if (eq == null) {
             return;
         }
@@ -2699,7 +2668,7 @@ public class StudioGUI implements Listener {
         } catch (NumberFormatException e) {
             return;
         }
-        if (!(entity instanceof LivingEntity living) || living.getEquipment() == null) {
+        if (!(entity instanceof LivingEntity living) || safeEquipment(living) == null) {
             return;
         }
         if (slot == 22) {
@@ -3744,7 +3713,7 @@ public class StudioGUI implements Listener {
     }
 
     private void mutateSlot(Player player, Entity entity, int idx, SlotEdit edit, String label) {
-        if (!(entity instanceof LivingEntity living) || living.getEquipment() == null) {
+        if (!(entity instanceof LivingEntity living) || safeEquipment(living) == null) {
             return;
         }
         ItemStack stack = slotStack(living, idx);
@@ -3907,8 +3876,18 @@ public class StudioGUI implements Listener {
         }
     }
 
+    /** getEquipment() can throw for exotic entities (and returns null where
+     * vanilla provides no slots): both mean "no editable equipment". */
+    private static EntityEquipment safeEquipment(LivingEntity living) {
+        try {
+            return living.getEquipment();
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
     private ItemStack slotStack(LivingEntity living, int idx) {
-        EntityEquipment eq = living.getEquipment();
+        EntityEquipment eq = safeEquipment(living);
         if (eq == null) {
             return null;
         }
@@ -3925,7 +3904,7 @@ public class StudioGUI implements Listener {
     }
 
     private void setSlot(LivingEntity living, int idx, ItemStack stack) {
-        EntityEquipment eq = living.getEquipment();
+        EntityEquipment eq = safeEquipment(living);
         if (eq == null) {
             return;
         }

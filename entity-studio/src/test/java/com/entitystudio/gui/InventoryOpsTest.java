@@ -50,6 +50,18 @@ class InventoryOpsTest {
     }
 
     @Test
+    void slotMatchesVerifiesWrites() {
+        assertTrue(InventoryOps.slotMatches(null, 0, null, 0));
+        assertTrue(InventoryOps.slotMatches("AIR", 0, null, 0));
+        assertTrue(InventoryOps.slotMatches(null, 0, "AIR", 1));
+        assertTrue(InventoryOps.slotMatches("DIAMOND_CHESTPLATE", 1, "DIAMOND_CHESTPLATE", 1));
+        assertFalse(InventoryOps.slotMatches("DIAMOND_CHESTPLATE", 1, null, 0));
+        assertFalse(InventoryOps.slotMatches("DIAMOND_CHESTPLATE", 1, "IRON_CHESTPLATE", 1));
+        assertFalse(InventoryOps.slotMatches("DIAMOND_CHESTPLATE", 1, "DIAMOND_CHESTPLATE", 2));
+        assertFalse(InventoryOps.slotMatches(null, 0, "DIAMOND_SWORD", 1));
+    }
+
+    @Test
     void realSlotMappingRespectsPages() {
         assertEquals(0, InventoryOps.realSlotFor(0, 27, 0));
         assertEquals(26, InventoryOps.realSlotFor(0, 27, 26));

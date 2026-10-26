@@ -101,17 +101,22 @@ discovery (`CapabilityRegistry`) follows the same per-type pattern.
 | `falling.drop_item/hurt_entities/max_damage` | Falling blocks | |
 | `explosive.yield/incendiary` | Explosives (fireballs, skulls, TNT) | Creepers use their own radius, not this |
 | `projectile.bounce` | Projectiles | |
+| `dragon.phase` | Ender dragons | Validated against the live `Phase` enum on write |
+| `wither.invulnerable_ticks` | Withers | 0 = vulnerable now |
 
 ## Advanced data browser
 
 The dashboard's **Advanced data** button opens a strictly read-only
-inspector: `PersistentDataContainer` entries (scalar + primitive-array
-types), derived facts (class, EID, UUID, ticks lived, velocity,
-passengers, vehicle, portal cooldown), search filter, and paging. Clicking a
-row prints its full value to chat. There is deliberately no write path —
-Paper's public API is not a writable NBT interface, and a partial-snapshot
-rewrite could erase unknown fields. Arbitrary NBT writes stay out until
-they can be version-gated and backup-safe (`settings.advanced-data.*`).
+inspector (full detail in `docs/advanced-data.md`): identity facts, scoreboard
+tags, `PersistentDataContainer` entries (scalars, primitive arrays, `LIST.*`,
+one level of nested `TAG_CONTAINER`), and the full entity SNBT via the public
+`Entity#getAsString()` (parsed for display, never written back). Every row shows
+its type, source (`public-api`), and status; sensitive keys and other players'
+private data are redacted at build time. Search filter, pagination, and row-click
+full-value-in-chat are included. There is deliberately no write path — Paper's
+public API is not a writable NBT interface, and a partial-snapshot rewrite could
+erase unknown fields. No NMS or reflection is used; `DataInspector` is the seam
+where a future version-gated probe could fail closed if one is ever needed.
 
 ## Deliberately NOT covered (and why)
 
@@ -126,9 +131,10 @@ they can be version-gated and backup-safe (`settings.advanced-data.*`).
   live, not headless. Plain Java enums (`Fox.Type`, `Parrot.Variant`,
   `Axolotl.Variant`, `MushroomCow.Variant`, `Boat.Type`, `DyeColor`) are
   parsed and unit-tested headless.
-- **Warden anger, ender-dragon phases, wither skull direction, vehicle
-  passengers**: multi-step or event-driven mechanics that a single scalar
-  write misrepresents; covered by the behavior page or not at all.
+- **Warden anger, wither skull direction, vehicle passengers**:
+  multi-step or event-driven mechanics that a single scalar write
+  misrepresents; covered by the behavior page or not at all. (Dragon
+  phase and wither spawn-armor are plain setters and ARE covered above.)
 - **UUID-typed owners** (`Tameable`): assigning needs a live
   `AnimalTamer`; the editor shows `tame.owner_uuid` read-only instead of
   pretending a typed UUID string is equivalent.

@@ -31,6 +31,11 @@ public class ManagedRecord {
     private boolean pursueOutsideRange = true;
     private boolean clearInvalidTarget = true;
     private boolean friendlyFireProtect = true;
+    /** Last target this record's rules assigned (owner command, defense,
+     * retaliation). Transient on purpose: targets never survive restarts,
+     * so this is deliberately NOT persisted by the codec. */
+    private UUID commandedTarget;
+    private long commandedAt;
     private Profile profile = Profile.CUSTOM;
     private boolean aiEnabled = true;
     private boolean anchored = false;
@@ -129,6 +134,24 @@ public class ManagedRecord {
 
     public boolean friendlyFireProtect() {
         return friendlyFireProtect;
+    }
+
+    public UUID commandedTarget() {
+        return commandedTarget;
+    }
+
+    public long commandedAt() {
+        return commandedAt;
+    }
+
+    public void command(UUID target, long now) {
+        commandedTarget = target;
+        commandedAt = now;
+    }
+
+    public void clearCommand() {
+        commandedTarget = null;
+        commandedAt = 0;
     }
 
     public void friendlyFireProtect(boolean v) {

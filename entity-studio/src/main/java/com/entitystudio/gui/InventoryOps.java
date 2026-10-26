@@ -78,6 +78,24 @@ public final class InventoryOps {
     }
 
     /**
+     * Write-verification for equipment swaps (headless tested): the live slot
+     * must hold exactly what was set, otherwise vanilla discarded it and the
+     * GUI must say so instead of pretending the armor stuck. Null/empty both
+     * mean "empty slot" because air stacks never survive a set anyway.
+     */
+    public static boolean slotMatches(String expectedType, int expectedAmount,
+            String actualType, int actualAmount) {
+        boolean expectEmpty = expectedType == null || expectedType.equals("AIR")
+                || expectedType.isEmpty() || expectedAmount <= 0;
+        boolean actualEmpty = actualType == null || actualType.equals("AIR")
+                || actualType.isEmpty() || actualAmount <= 0;
+        if (expectEmpty || actualEmpty) {
+            return expectEmpty && actualEmpty;
+        }
+        return expectedType.equals(actualType) && expectedAmount == actualAmount;
+    }
+
+    /**
      * Splits a requested deposit amount across identical stacks: how much of
      * {@code moving} each same-kind stack absorbs. Pure helper so deposit
      * accounting is testable without inventories.
