@@ -53,6 +53,17 @@ public class HistoryService {
         return stack == null ? 0 : stack.size();
     }
 
+    /** Newest record without popping — lets callers pre-check its target. */
+    public EditRecord peekFirst(UUID actor) {
+        Deque<EditRecord> stack = stacks.get(actor);
+        if (stack == null) {
+            return null;
+        }
+        synchronized (stack) {
+            return stack.peekFirst();
+        }
+    }
+
     public void clear(UUID actor) {
         stacks.remove(actor);
     }

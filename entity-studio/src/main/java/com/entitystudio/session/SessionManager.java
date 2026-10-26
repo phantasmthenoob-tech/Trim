@@ -63,37 +63,62 @@ public class SessionManager {
     /** Re-resolves the session target and re-checks every precondition. */
     public Validation validate(EntityStudioAccess access, EditorSession session) {
         Entity entity = Bukkit.getEntity(session.entityUuid());
-        if (entity == null || !entity.isValid() || entity.isDead()) {
+        boolean entityGone = entity == null || !entity.isValid() || entity.isDead();
+        Player editor = Bukkit.getPlayer(session.editorUuid());
+        boolean editorOnline = editor != null && editor.isOnline();
+        String editorName = editorOnline ? editor.getName() : "?";
+        boolean isOp = editorOnline && editor.isOp();
+        boolean ownerBypass = access.gate().ownerBypassesPermissions(editorName);
+        boolean hasUse = editorOnline && editor.hasPermission(StudioPermissions.USE);
+        boolean protectedEntity = !entityGone
+                && access.protectedEntities().contains(entity.getUniqueId());
+        boolean otherPlayer = !entityGone && entity instanceof Player target
+                && editorOnline && !target.getUniqueId().equals(editor.getUniqueId());
+        boolean hasPlayerEdit = editorOnline
+                && editor.hasPermission(StudioPermissions.PLAYER_EDIT);
+        boolean concurrent = false;
+        if (!entityGone && access.preventConcurrentEditors()) {
+            UUID current = editorByEntity.get(entity.getUniqueId());
+            concurrent = current != null && editorOnline
+                    && !current.equals(editor.getUniqueId());
+        }
+        Validation v = validateAccess(entityGone, editorOnline,
+                access.gate().decide(editorName, isOp), ownerBypass, hasUse,
+                protectedEntity, otherPlayer, access.protectOtherPlayers(), hasPlayerEdit,
+                concurrent);
+        if (v == Validation.ENTITY_GONE || v == Validation.NO_ACCESS && !editorOnline) {
             close(session.editorUuid());
+        }
+        return v;
+    }
+
+    /** Pure authorization matrix (no Bukkit) — unit tested. Mirrors the same
+     * rules as {@link #checkTargetAccess} style checks: explicit denials win,
+     * the owner bypasses permission nodes but never protected entities. */
+    public static Validation validateAccess(boolean entityGone, boolean editorOnline,
+            Gatekeeper.Access gateDecision, boolean ownerBypass, boolean hasUse,
+            boolean protectedEntity, boolean targetIsOtherPlayer,
+            boolean protectOtherPlayers, boolean hasPlayerEdit, boolean concurrentEditor) {
+        if (entityGone) {
             return Validation.ENTITY_GONE;
         }
-        Player editor = Bukkit.getPlayer(session.editorUuid());
-        if (editor == null || !editor.isOnline()) {
-            close(session.editorUuid());
+        if (!editorOnline) {
             return Validation.NO_ACCESS;
         }
-        if (!access.gate().decide(editor.getName(), editor.isOp()).equals(Gatekeeper.Access.ALLOW)) {
+        if (gateDecision != Gatekeeper.Access.ALLOW) {
             return Validation.NO_ACCESS;
         }
-        if (!access.gate().ownerBypassesPermissions(editor.getName())
-                && !editor.hasPermission(StudioPermissions.USE)) {
+        if (!ownerBypass && !hasUse) {
             return Validation.NO_ACCESS;
         }
-        if (access.protectedEntities().contains(entity.getUniqueId())) {
+        if (protectedEntity) {
             return Validation.PROTECTED;
         }
-        if (entity instanceof Player target) {
-            if (!target.getUniqueId().equals(editor.getUniqueId())
-                    && !access.gate().ownerBypassesPermissions(editor.getName())
-                    && !editor.hasPermission(StudioPermissions.PLAYER_EDIT)) {
-                return Validation.NO_ACCESS;
-            }
+        if (targetIsOtherPlayer && protectOtherPlayers && !ownerBypass && !hasPlayerEdit) {
+            return Validation.NO_ACCESS;
         }
-        if (access.preventConcurrentEditors()) {
-            UUID current = editorByEntity.get(entity.getUniqueId());
-            if (current != null && !current.equals(editor.getUniqueId())) {
-                return Validation.CONCURRENT_EDITOR;
-            }
+        if (concurrentEditor) {
+            return Validation.CONCURRENT_EDITOR;
         }
         return Validation.OK;
     }
@@ -105,5 +130,8 @@ public class SessionManager {
         java.util.Set<UUID> protectedEntities();
 
         boolean preventConcurrentEditors();
+
+        /** Mirrors settings.security.protect-other-players. */
+        boolean protectOtherPlayers();
     }
 }

@@ -28,6 +28,7 @@ import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 import org.bukkit.event.inventory.InventoryClickEvent;
 import org.bukkit.event.inventory.InventoryCloseEvent;
+import org.bukkit.event.inventory.InventoryDragEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.inventory.EntityEquipment;
 import org.bukkit.inventory.Inventory;
@@ -51,14 +52,14 @@ public class StudioGUI implements Listener {
 
     public enum Page {
         DASHBOARD, PROPERTIES, EQUIPMENT, ATTRIBUTES, EFFECTS, BEHAVIOR,
-        TRADES, ITEM, HISTORY, SNAPSHOTS, PRESETS, CONFIRM, PLAYER_INV,
+        TRADES, ITEM, HISTORY, SNAPSHOTS, PRESETS, CONFIRM, PLAYER_INV, CONTAINER,
     }
 
     /** Chat-input kinds for typed value entry. */
     private enum InputKind {
         PROP_VALUE, SEARCH, ITEM_NAME, ITEM_LORE, ITEM_AMOUNT, ITEM_DAMAGE,
         ITEM_ENCHANT, ALLY_OWNER, TRUST_ADD, TRUST_DEL, ENEMY_ADD, ENEMY_DEL,
-        PRESET_SAVE, SNAP_SAVE, EFFECT_ADD, ATTR_VALUE, TELEPORT,
+        PRESET_SAVE, SNAP_SAVE, EFFECT_ADD, ATTR_VALUE, TELEPORT, NAME_SET,
     }
 
     private record PendingInput(InputKind kind, UUID entityUuid, String data) {
@@ -69,7 +70,11 @@ public class StudioGUI implements Listener {
         void run(Player player, Entity entity);
     }
 
-    private record ConfirmEntry(String title, String question, ConfirmAction action) {
+    /** Destructive confirmations carry their required node so execution time
+     * re-checks it: a token created under one permission set must not fire
+     * after revocation, target protection, or session changes. */
+    private record ConfirmEntry(String title, String question, String permissionNode,
+            ConfirmAction action) {
     }
 
     static final class GuiHolder implements InventoryHolder {
@@ -114,7 +119,7 @@ public class StudioGUI implements Listener {
 
     /** Re-validates the session and returns the live entity, or null + feedback. */
     private Entity resolve(Player player, GuiHolder holder) {
-        Entity entity = Bukkit.getEntity(holder.entityUuid);
+        Entity entity = holder.entityUuid == null ? null : Bukkit.getEntity(holder.entityUuid);
         if (entity == null || !entity.isValid() || entity.isDead()) {
             plugin.sessions().close(player.getUniqueId());
             plugin.send(player, plugin.msg("session-invalid"));
@@ -165,9 +170,9 @@ public class StudioGUI implements Listener {
         col = dashButton(inv, col, caps.contains(Capability.EQUIPMENT), "EQUIPMENT",
                 Material.IRON_CHESTPLATE, "<aqua><bold>Equipment",
                 "<gray>Armor, hands, drop chances");
-        col = dashButton(inv, col, caps.contains(Capability.PLAYER_INVENTORY)
-                || caps.contains(Capability.MOUNT_INVENTORY)
-                || caps.contains(Capability.CONTAINER_INVENTORY), "PLAYER_INV",
+        // Every entity has editable storage now: native inventory for holders,
+        // persistent plugin stash for the rest — so this is always available.
+        col = dashButton(inv, col, true, "PLAYER_INV",
                 Material.CHEST, "<aqua><bold>Inventory",
                 playerInvHint(entity));
         col = dashButton(inv, col, true, "PROPERTIES", Material.BOOK,
@@ -191,6 +196,13 @@ public class StudioGUI implements Listener {
         }
         inv.setItem(45, named(Material.COMPASS, "<gray>Search properties",
                 "<gray>Filter the data editor by name", "<yellow>Click, then type"));
+        inv.setItem(46, toggleItem(entity.isCustomNameVisible(), "Nameplate visible",
+                "Show the custom name above the entity"));
+        String dashName = entity.getCustomName();
+        inv.setItem(47, named(Material.NAME_TAG,
+                "<white>Rename: <aqua>" + escape(trunc(
+                        dashName == null || dashName.isBlank() ? "—" : dashName, 20)),
+                "<yellow>Click to type a new name", "<gray>Right-click to clear"));
         inv.setItem(48, named(Material.CLOCK, "<aqua>History & undo",
                 "<gray>" + plugin.history().size(player.getUniqueId()) + " recorded edits",
                 "<yellow>Click to review"));
@@ -232,13 +244,21 @@ public class StudioGUI implements Listener {
         if (entity instanceof org.bukkit.entity.AbstractHorse) {
             return "Saddle, armor, chest storage (live)";
         }
-        return "Container storage (live)";
+        if (entity instanceof InventoryHolder) {
+            return "Container storage (live)";
+        }
+        return "Entity stash: 27 persistent slots";
     }
 
     private ItemStack summaryItem(Entity entity, Set<Capability> caps) {
         List<String> lore = new ArrayList<>();
         lore.add("<gray>Type: <aqua>" + entity.getType().name().toLowerCase());
         lore.add("<gray>UUID: <yellow>" + shortUuid(entity.getUniqueId()));
+        lore.add("<gray>EID: <white>#" + entity.getEntityId());
+        String cn = entity.getCustomName();
+        lore.add("<gray>Name: <white>"
+                + escape(trunc(cn == null || cn.isBlank() ? "—" : cn, 28))
+                + (entity.isCustomNameVisible() ? " <green>(shown)" : " <gray>(hidden)"));
         lore.add("<gray>At: <white>" + loc(entity));
         if (entity instanceof LivingEntity l) {
             lore.add("<gray>Health: <red>" + round1(l.getHealth())
@@ -264,17 +284,16 @@ public class StudioGUI implements Listener {
         if (entity instanceof Player) {
             out.add("Player editing: offline changes are NOT supported.");
         }
-        if (!caps.contains(Capability.EQUIPMENT) && !caps.contains(Capability.PLAYER_INVENTORY)
-                && !caps.contains(Capability.CONTAINER_INVENTORY)
-                && !caps.contains(Capability.MOUNT_INVENTORY)) {
-            out.add("No inventory on this entity type.");
-        }
         return out;
     }
 
     // -------------------------------------------------------------- properties
 
     public void openProperties(Player player, Entity entity, String filter) {
+        if (!plugin.permitted(player, StudioPermissions.DATA_VIEW)) {
+            plugin.send(player, plugin.msg("no-permission"));
+            return;
+        }
         plugin.sessions().setPage(player.getUniqueId(), "properties");
         List<EntityProperty<?>> all = filter == null || filter.isBlank()
                 ? plugin.properties().listFor(entity)
@@ -346,6 +365,10 @@ public class StudioGUI implements Listener {
             plugin.send(player, "<red>This entity has no equipment.");
             return;
         }
+        if (!plugin.permitted(player, StudioPermissions.INV_VIEW)) {
+            plugin.send(player, plugin.msg("no-permission"));
+            return;
+        }
         plugin.sessions().setPage(player.getUniqueId(), "equipment");
         GuiHolder holder = new GuiHolder(Page.EQUIPMENT, entity.getUniqueId(), null, 0);
         Inventory inv = Bukkit.createInventory(holder, 27,
@@ -380,6 +403,10 @@ public class StudioGUI implements Listener {
     public void openAttributes(Player player, Entity entity) {
         if (!(entity instanceof Attributable attr)) {
             plugin.send(player, "<red>This entity has no attributes.");
+            return;
+        }
+        if (!plugin.permitted(player, StudioPermissions.DATA_VIEW)) {
+            plugin.send(player, plugin.msg("no-permission"));
             return;
         }
         plugin.sessions().setPage(player.getUniqueId(), "attributes");
@@ -419,6 +446,10 @@ public class StudioGUI implements Listener {
             plugin.send(player, "<red>Only living entities have effects.");
             return;
         }
+        if (!plugin.permitted(player, StudioPermissions.DATA_VIEW)) {
+            plugin.send(player, plugin.msg("no-permission"));
+            return;
+        }
         plugin.sessions().setPage(player.getUniqueId(), "effects");
         GuiHolder holder = new GuiHolder(Page.EFFECTS, entity.getUniqueId(), null, 0);
         Inventory inv = Bukkit.createInventory(holder, 54,
@@ -451,7 +482,11 @@ public class StudioGUI implements Listener {
 
     public void openPlayerInv(Player player, Entity entity) {
         if (entity instanceof Player target) {
-            plugin.sessions().setPage(player.getUniqueId(), "player_inv");
+            if (!plugin.permitted(player, StudioPermissions.INV_VIEW)) {
+            plugin.send(player, plugin.msg("no-permission"));
+            return;
+        }
+        plugin.sessions().setPage(player.getUniqueId(), "player_inv");
             GuiHolder holder = new GuiHolder(Page.PLAYER_INV, entity.getUniqueId(), null, 0);
             Inventory inv = Bukkit.createInventory(holder, 27,
                     plugin.mm().deserialize("<dark_gray>Player inventory"));
@@ -469,22 +504,295 @@ public class StudioGUI implements Listener {
             player.openInventory(inv);
             return;
         }
-        // Mounts and containers open their real inventories directly: live editing.
+        // Everything else opens through the size-safe mirror: native storage
+        // for holders, or the persistent plugin stash for entities (cows,
+        // pigs, ...) that have no inventory of their own.
+        openContainerMirror(player, entity);
+    }
+
+    /** Editable backing store: the entity's own inventory for holders, the
+     * persistent plugin stash for everyone else. Null only when a native
+     * inventory is unreadable. */
+    private Inventory backingInventory(Entity entity) {
         if (entity instanceof InventoryHolder holderEnt) {
             try {
-                player.openInventory(holderEnt.getInventory());
-                plugin.send(player, "<gray>Opened live inventory — edits apply immediately.");
+                return holderEnt.getInventory();
             } catch (Exception e) {
-                plugin.send(player, "<red>Could not open that inventory: " + e.getMessage());
+                plugin.getLogger().warning("Could not read inventory of "
+                        + entity.getType().name() + " " + entity.getUniqueId() + ": " + e);
+                return null;
             }
+        }
+        return plugin.stashes().stashFor(entity.getUniqueId());
+    }
+
+    // ------------------------------------------------------- container mirror
+
+    /** Size-safe mirror of an entity's editable storage — native inventory
+     * for holders, persistent plugin stash for everyone else. Click an item
+     * to withdraw it into your inventory; shift-click items in your own
+     * inventory to deposit them. Transfers write straight through with index
+     * validation — never a detached copy. Any backing size works: content
+     * beyond one page spills onto more pages instead of crashing the view,
+     * and unused slots show placeholders. */
+    public void openContainerMirror(Player player, Entity entity) {
+        openContainerMirror(player, entity, 0);
+    }
+
+    public void openContainerMirror(Player player, Entity entity, int page) {
+        if (!plugin.checkTargetAccess(player, entity)) {
             return;
         }
-        plugin.send(player, "<red>This entity has no inventory.");
+        if (!plugin.permitted(player, StudioPermissions.INV_VIEW)) {
+            plugin.send(player, plugin.msg("no-permission"));
+            return;
+        }
+        Inventory real = backingInventory(entity);
+        if (real == null) {
+            plugin.send(player, "<red>Could not read that inventory.");
+            return;
+        }
+        boolean stash = !(entity instanceof InventoryHolder);
+        int pages = ContainerPages.pageCount(real.getSize());
+        page = ContainerPages.clampPage(page, real.getSize());
+        int start = ContainerPages.startIndex(page, real.getSize());
+        plugin.sessions().setPage(player.getUniqueId(), "container");
+        GuiHolder holder = new GuiHolder(Page.CONTAINER, entity.getUniqueId(),
+                String.valueOf(page), 0);
+        Inventory inv = Bukkit.createInventory(holder, 54,
+                plugin.mm().deserialize("<dark_gray>" + (stash ? "Stash: " : "Container: ")
+                        + escape(trunc(entity.getType().name().toLowerCase(), 14))
+                        + (pages > 1 ? " <gray>(p. " + (page + 1) + "/" + pages + ")" : "")));
+        holder.inv = inv;
+        for (int i = 0; i < ContainerPages.PAGE_CONTENT; i++) {
+            int realIdx = start + i;
+            if (realIdx >= real.getSize()) {
+                break;
+            }
+            ItemStack s = real.getItem(realIdx);
+            inv.setItem(i, isAir(s) ? null : s.clone());
+        }
+        inv.setItem(45, navBack());
+        inv.setItem(46, named(Material.BOOK, stash ? "<aqua>Entity stash"
+                : "<aqua>How this works",
+                stash ? "<gray>Plugin storage for entities"
+                        : "<gray>Click an item: withdraw to you",
+                stash ? "<gray>with no inventory of their own"
+                        : "<gray>Shift-click your items: deposit",
+                stash ? "<gray>Persists across restarts"
+                        : "<gray>Edits apply to the live entity"));
+        if (ContainerPages.hasPrev(page, real.getSize())) {
+            inv.setItem(48, named(Material.ARROW, "<yellow>Previous page",
+                    "<gray>Page " + page + " of " + pages));
+        }
+        inv.setItem(49, named(Material.HOPPER, "<gold>Withdraw all",
+                "<gray>Moves everything into your inventory",
+                "<yellow>Click to withdraw"));
+        if (ContainerPages.hasNext(page, real.getSize())) {
+            inv.setItem(50, named(Material.ARROW, "<yellow>Next page",
+                    "<gray>Page " + (page + 2) + " of " + pages));
+        }
+        for (int i = 0; i < 54; i++) {
+            if (inv.getItem(i) == null) {
+                inv.setItem(i, filler());
+            }
+        }
+        if (stash) {
+            plugin.stashes().saveOne(entity.getUniqueId());
+        }
+        player.openInventory(inv);
+    }
+
+    private void clickContainer(Player player, GuiHolder holder, InventoryClickEvent event) {
+        Entity entity = resolve(player, holder);
+        if (entity == null) {
+            return;
+        }
+        Inventory real = backingInventory(entity);
+        if (real == null) {
+            plugin.send(player, "<red>Could not read that inventory.");
+            player.closeInventory();
+            return;
+        }
+        if (event.getClickedInventory() == null) {
+            return;
+        }
+        int page = ContainerPages.parsePage(holder.data);
+        boolean top = event.getClickedInventory().equals(event.getView().getTopInventory());
+        switch (event.getClick()) {
+            case LEFT, RIGHT -> {
+                if (top) {
+                    containerTopClick(player, entity, real, page, event.getSlot());
+                }
+            }
+            case SHIFT_LEFT, SHIFT_RIGHT -> {
+                if (top) {
+                    containerTopClick(player, entity, real, page, event.getSlot());
+                } else {
+                    containerDeposit(player, entity, real, page, event);
+                }
+            }
+            default -> {
+                // number keys, double-click, drops: ignored (already cancelled)
+            }
+        }
+    }
+
+    private void containerTopClick(Player player, Entity entity, Inventory real, int page,
+            int slot) {
+        if (slot == 45) {
+            openDashboard(player, entity);
+            return;
+        }
+        if (slot == 48 && ContainerPages.hasPrev(page, real.getSize())) {
+            openContainerMirror(player, entity, page - 1);
+            return;
+        }
+        if (slot == 50 && ContainerPages.hasNext(page, real.getSize())) {
+            openContainerMirror(player, entity, page + 1);
+            return;
+        }
+        if (!plugin.permitted(player, StudioPermissions.INV_EDIT)) {
+            plugin.send(player, plugin.msg("no-permission"));
+            return;
+        }
+        if (slot == 49) {
+            containerWithdrawAll(player, entity, real, page);
+            return;
+        }
+        if (slot < 0 || slot >= ContainerPages.PAGE_CONTENT) {
+            return;
+        }
+        containerWithdrawOne(player, entity, real, page,
+                ContainerPages.startIndex(page, real.getSize()) + slot);
+    }
+
+    private void containerWithdrawOne(Player player, Entity entity, Inventory real, int page,
+            int realSlot) {
+        if (realSlot < 0 || realSlot >= real.getSize()) {
+            return;
+        }
+        ItemStack inReal = real.getItem(realSlot);
+        if (isAir(inReal)) {
+            return;
+        }
+        ItemStack moving = inReal.clone();
+        real.setItem(realSlot, null);
+        ItemStack rest = player.getInventory().addItem(moving).values().stream()
+                .findFirst().orElse(null);
+        if (rest != null) {
+            real.setItem(realSlot, rest); // your inventory was full: put it back
+        }
+        String what = moving.getType().name().toLowerCase() + " x" + moving.getAmount();
+        recordSimple(player, entity, "Withdraw " + what + " (slot " + realSlot + ")",
+                what, rest == null ? "to " + player.getName() : "partially moved",
+                e2 -> {
+                    Inventory inv = backingInventory(e2);
+                    if (inv != null) {
+                        inv.addItem(moving.clone());
+                    }
+                });
+        plugin.send(player, "<green>Withdrew <white>" + what);
+        openContainerMirror(player, entity, page);
+    }
+
+    private void containerWithdrawAll(Player player, Entity entity, Inventory real, int page) {
+        List<ItemStack> taken = new ArrayList<>();
+        for (int i = 0; i < real.getSize(); i++) {
+            ItemStack s = real.getItem(i);
+            if (!isAir(s)) {
+                taken.add(s.clone());
+                real.setItem(i, null);
+            }
+        }
+        if (taken.isEmpty()) {
+            plugin.send(player, "<gray>Container is empty.");
+            return;
+        }
+        List<ItemStack> overflow = new ArrayList<>();
+        for (ItemStack s : taken) {
+            overflow.addAll(player.getInventory().addItem(s).values());
+        }
+        for (ItemStack s : overflow) {
+            real.addItem(s); // your inventory filled up: put the rest back
+        }
+        int moved = taken.size() - overflow.size();
+        final List<ItemStack> snapshot = new ArrayList<>(taken);
+        recordSimple(player, entity, "Withdraw all (container)", taken.size() + " stacks",
+                moved + " moved", e2 -> {
+                    Inventory inv = backingInventory(e2);
+                    if (inv != null) {
+                        for (ItemStack s : snapshot) {
+                            for (ItemStack o : inv.addItem(s.clone()).values()) {
+                                e2.getWorld().dropItemNaturally(e2.getLocation(), o);
+                            }
+                        }
+                    }
+                });
+        plugin.send(player, "<green>Withdrew <white>" + moved + "<green> stack(s)"
+                + (overflow.isEmpty() ? ""
+                        : " (<yellow>" + overflow.size() + " did not fit — kept<green>)"));
+        openContainerMirror(player, entity, page);
+    }
+
+    private void containerDeposit(Player player, Entity entity, Inventory real, int page,
+            InventoryClickEvent event) {
+        if (!plugin.permitted(player, StudioPermissions.INV_EDIT)) {
+            plugin.send(player, plugin.msg("no-permission"));
+            return;
+        }
+        ItemStack offering = event.getCurrentItem();
+        if (isAir(offering)) {
+            return;
+        }
+        ItemStack moving = offering.clone();
+        ItemStack left = real.addItem(moving).values().stream()
+                .findFirst().orElse(null);
+        event.getClickedInventory().setItem(event.getSlot(), left);
+        String what = moving.getType().name().toLowerCase() + " x" + moving.getAmount();
+        UUID actor = player.getUniqueId();
+        recordSimple(player, entity, "Deposit " + what + " (container)",
+                "held by " + player.getName(), left == null ? "stored" : "partially stored",
+                e2 -> {
+                    Inventory r2 = backingInventory(e2);
+                    if (r2 != null) {
+                        int need = moving.getAmount();
+                        for (int i = 0; i < r2.getSize() && need > 0; i++) {
+                            ItemStack s = r2.getItem(i);
+                            if (s != null && s.isSimilar(moving)) {
+                                int take = Math.min(need, s.getAmount());
+                                if (s.getAmount() == take) {
+                                    r2.setItem(i, null);
+                                } else {
+                                    s.setAmount(s.getAmount() - take);
+                                }
+                                need -= take;
+                            }
+                        }
+                        int back = moving.getAmount() - need;
+                        if (back > 0) {
+                            ItemStack ret = moving.clone();
+                            ret.setAmount(back);
+                            Player p = Bukkit.getPlayer(actor);
+                            if (p != null) {
+                                p.getInventory().addItem(ret);
+                            } else {
+                                e2.getWorld().dropItemNaturally(e2.getLocation(), ret);
+                            }
+                        }
+                    }
+                });
+        plugin.send(player, "<green>Deposited <white>" + what);
+        openContainerMirror(player, entity, page);
     }
 
     // ---------------------------------------------------------------- behavior
 
     public void openBehavior(Player player, Entity entity) {
+        if (!plugin.permitted(player, StudioPermissions.BEHAVIOR)) {
+            plugin.send(player, plugin.msg("no-permission"));
+            return;
+        }
         plugin.sessions().setPage(player.getUniqueId(), "behavior");
         ManagedRecord rec = plugin.allegiance().getOrCreate(entity);
         GuiHolder holder = new GuiHolder(Page.BEHAVIOR, entity.getUniqueId(), null, 0);
@@ -526,6 +834,8 @@ public class StudioGUI implements Listener {
                 "<yellow>Click to add", "<gray>Right-click to remove one"));
         inv.setItem(34, named(Material.SKELETON_SKULL, "<white>Enemies: <aqua>" + rec.enemies().size(),
                 "<yellow>Click to add", "<gray>Right-click to remove one"));
+        inv.setItem(35, toggleItem(rec.friendlyFireProtect(), "Friendly fire guard",
+                "Same-owner / trusted mobs won't hurt each other"));
         // anchors
         inv.setItem(37, named(Material.ANVIL, rec.anchored() && !rec.hardAnchor()
                 ? "<green><bold>Soft anchor: ON" : "<gray>Soft anchor: off",
@@ -584,6 +894,10 @@ public class StudioGUI implements Listener {
             plugin.send(player, "<red>This entity is not a merchant.");
             return;
         }
+        if (!plugin.permitted(player, StudioPermissions.TRADES)) {
+            plugin.send(player, plugin.msg("no-permission"));
+            return;
+        }
         plugin.sessions().setPage(player.getUniqueId(), "trades");
         GuiHolder holder = new GuiHolder(Page.TRADES, entity.getUniqueId(), null, 0);
         Inventory inv = Bukkit.createInventory(holder, 54,
@@ -593,7 +907,9 @@ public class StudioGUI implements Listener {
         try {
             recipes = new ArrayList<>(merchant.getRecipes());
         } catch (Exception e) {
-            plugin.send(player, "<red>Could not read offers: " + e.getMessage());
+            plugin.getLogger().warning("Could not read merchant offers of "
+                    + entity.getType().name() + " " + entity.getUniqueId() + ": " + e);
+            plugin.send(player, "<red>Could not read offers.");
             return;
         }
         for (int i = 0; i < Math.min(44, recipes.size()); i++) {
@@ -630,6 +946,10 @@ public class StudioGUI implements Listener {
     /** Edits the equipment slot's live stack. idx follows EQUIP_SLOTS order. */
     public void openItemEditor(Player player, Entity entity, int idx) {
         if (!(entity instanceof LivingEntity living) || living.getEquipment() == null) {
+            return;
+        }
+        if (!plugin.permitted(player, StudioPermissions.INV_VIEW)) {
+            plugin.send(player, plugin.msg("no-permission"));
             return;
         }
         plugin.sessions().setPage(player.getUniqueId(), "item:" + idx);
@@ -669,6 +989,10 @@ public class StudioGUI implements Listener {
     // ---------------------------------------------------------------- history
 
     public void openHistory(Player player, Entity entity) {
+        if (!plugin.permitted(player, StudioPermissions.UNDO)) {
+            plugin.send(player, plugin.msg("no-permission"));
+            return;
+        }
         plugin.sessions().setPage(player.getUniqueId(), "history");
         List<EditRecord> records = plugin.history().recent(player.getUniqueId(), 45);
         GuiHolder holder = new GuiHolder(Page.HISTORY,
@@ -703,6 +1027,10 @@ public class StudioGUI implements Listener {
     // ------------------------------------------------------- snapshots & presets
 
     public void openSnapshots(Player player, Entity entity) {
+        if (!plugin.permitted(player, StudioPermissions.SNAPSHOT)) {
+            plugin.send(player, plugin.msg("no-permission"));
+            return;
+        }
         plugin.sessions().setPage(player.getUniqueId(), "snapshots");
         Set<String> names = plugin.snapshots().snapshotNames();
         GuiHolder holder = new GuiHolder(Page.SNAPSHOTS,
@@ -730,6 +1058,10 @@ public class StudioGUI implements Listener {
     }
 
     public void openPresets(Player player, Entity entity) {
+        if (!plugin.permitted(player, StudioPermissions.PRESETS)) {
+            plugin.send(player, plugin.msg("no-permission"));
+            return;
+        }
         plugin.sessions().setPage(player.getUniqueId(), "presets");
         Set<String> names = plugin.snapshots().presetNames();
         GuiHolder holder = new GuiHolder(Page.PRESETS,
@@ -786,6 +1118,12 @@ public class StudioGUI implements Listener {
         if (!(event.getWhoClicked() instanceof Player player)) {
             return;
         }
+        if (holder.page == Page.CONTAINER) {
+            // Container mirror: bottom-inventory shift-clicks deposit items,
+            // so this page bypasses the top-inventory-only gate below.
+            clickContainer(player, holder, event);
+            return;
+        }
         if (event.getClickedInventory() == null
                 || !event.getClickedInventory().equals(event.getView().getTopInventory())) {
             return;
@@ -812,7 +1150,7 @@ public class StudioGUI implements Listener {
         boolean right = event.isRightClick();
         boolean shift = event.isShiftClick();
         switch (holder.page) {
-            case DASHBOARD -> clickDashboard(player, entity, slot, shift);
+            case DASHBOARD -> clickDashboard(player, entity, slot, right, shift);
             case PROPERTIES -> clickProperties(player, entity, holder, slot, right);
             case EQUIPMENT -> clickEquipment(player, entity, slot, right, shift,
                     event.getCurrentItem());
@@ -822,15 +1160,33 @@ public class StudioGUI implements Listener {
             case TRADES -> clickTrades(player, entity, slot, shift);
             case ITEM -> clickItem(player, entity, holder, slot, right);
             case HISTORY -> clickHistory(player, entity, slot);
-            case SNAPSHOTS -> clickSnapshots(player, entity, slot);
+            case SNAPSHOTS -> clickSnapshots(player, entity, holder, slot);
             case PRESETS -> clickPresets(player, entity, holder, slot, right);
             case CONFIRM -> clickConfirm(player, holder, slot);
             case PLAYER_INV -> clickPlayerInv(player, entity, slot);
+            case CONTAINER -> {
+                // routed earlier; unreachable here
+            }
         }
     }
 
-    private void clickDashboard(Player player, Entity entity, int slot, boolean shift) {
+    @EventHandler
+    public void onDrag(InventoryDragEvent event) {
+        // Our GUIs are button boards, not storage: never let drags park items
+        // inside them, or players lose items into fake inventories on close.
+        if (event.getView().getTopInventory().getHolder() instanceof GuiHolder) {
+            event.setCancelled(true);
+        }
+    }
+
+    private void clickDashboard(Player player, Entity entity, int slot, boolean right,
+            boolean shift) {
         switch (slot) {
+            case 4 -> plugin.send(player, "<gray>Type: <aqua>"
+                    + entity.getType().name().toLowerCase()
+                    + "<gray> · EID <white>#" + entity.getEntityId()
+                    + "<gray> · UUID <yellow>" + entity.getUniqueId()
+                    + "<gray> · At <white>" + loc(entity));
             case 10 -> openEquipment(player, entity);
             case 11 -> openPlayerInv(player, entity);
             case 12 -> openProperties(player, entity, null);
@@ -840,6 +1196,36 @@ public class StudioGUI implements Listener {
             case 16 -> openTrades(player, entity);
             case 45 -> askChat(player, entity.getUniqueId(), InputKind.SEARCH, null,
                     "<yellow>Type a property name to filter by:");
+            case 46 -> {
+                if (!plugin.permitted(player, StudioPermissions.DATA_EDIT)) {
+                    plugin.send(player, plugin.msg("no-permission"));
+                    return;
+                }
+                boolean old = entity.isCustomNameVisible();
+                entity.setCustomNameVisible(!old);
+                recordSimple(player, entity, "Name visible", String.valueOf(old),
+                        String.valueOf(!old), e2 -> e2.setCustomNameVisible(old));
+                plugin.send(player, "<green>Nameplate visible → <white>" + (!old));
+                openDashboard(player, entity);
+            }
+            case 47 -> {
+                if (!plugin.permitted(player, StudioPermissions.DATA_EDIT)) {
+                    plugin.send(player, plugin.msg("no-permission"));
+                    return;
+                }
+                if (right) {
+                    String old = entity.getCustomName();
+                    entity.setCustomName(null);
+                    recordSimple(player, entity, "Custom name",
+                            old == null || old.isBlank() ? "—" : old, "—",
+                            e2 -> e2.setCustomName(old));
+                    plugin.send(player, "<gray>Custom name cleared.");
+                    openDashboard(player, entity);
+                } else {
+                    askChat(player, entity.getUniqueId(), InputKind.NAME_SET, null,
+                            "<yellow>Type the new custom name (blank clears, cancel aborts):");
+                }
+            }
             case 48 -> openHistory(player, entity);
             case 49 -> openSnapshots(player, entity);
             case 50 -> openPresets(player, entity);
@@ -856,12 +1242,13 @@ public class StudioGUI implements Listener {
                 if (plugin.getConfig().getBoolean("settings.editor.confirm-destructive-actions", true)) {
                     confirm(player, entity, "Remove entity",
                             "Permanently remove this " + entity.getType().name().toLowerCase()
-                                    + "? This cannot be undone.",
+                                    + "? This cannot be undone.", StudioPermissions.DATA_EDIT,
                             (p, e) -> {
                                 plugin.history().record(new EditRecord(p.getUniqueId(),
                                         e.getUniqueId(), e.getType().name(), "Remove entity",
                                         "existed", "removed", false, "DESTRUCTIVE", null));
                                 plugin.sessions().closeForEntity(e.getUniqueId());
+                                plugin.stashes().drop(e.getUniqueId());
                                 e.remove();
                                 p.closeInventory();
                                 plugin.send(p, "<red>Entity removed.");
@@ -906,10 +1293,10 @@ public class StudioGUI implements Listener {
             return;
         }
         if (prop.type() == EntityProperty.PropertyType.BOOLEAN && !right) {
-            boolean next = !((Boolean) prop.read(entity));
-            String err = plugin.properties().apply(player, entity, prop, next,
-                    StudioPermissions.DATA_EDIT, plugin.history(),
-                    plugin.getConfig().getBoolean("settings.history.enabled", true));
+            boolean next = !((Boolean) prop.read(entity));                String err = plugin.properties().apply(player, entity, prop, next,
+                        StudioPermissions.DATA_EDIT, node -> plugin.permitted(player, node),
+                        plugin.history(),
+                        plugin.getConfig().getBoolean("settings.history.enabled", true));
             if (err == null) {
                 plugin.send(player, "<green>" + prop.displayName() + " → <white>" + next);
             } else {
@@ -947,7 +1334,8 @@ public class StudioGUI implements Listener {
                 return;
             }
             confirm(player, entity, "Clear equipment",
-                    "Remove all 6 equipment slots? Item snapshots are recorded.", (p, e) -> {
+                    "Remove all 6 equipment slots? Item snapshots are recorded.",
+                    StudioPermissions.INV_EDIT, (p, e) -> {
                         LivingEntity l = (LivingEntity) e;
                         snapshotEquipment(p, e);
                         EntityEquipment eq = l.getEquipment();
@@ -1257,6 +1645,7 @@ public class StudioGUI implements Listener {
                 }
                 boolean old = l.hasAI();
                 l.setAI(!old);
+                plugin.allegiance().getOrCreate(entity).aiEnabled(!old);
                 recordSimple(player, entity, "AI enabled", String.valueOf(old),
                         String.valueOf(!old), e2 -> ((LivingEntity) e2).setAI(old));
                 plugin.send(player, "<green>AI enabled → <white>" + (!old));
@@ -1317,6 +1706,17 @@ public class StudioGUI implements Listener {
                     }
                 }
                 plugin.send(player, "<green>Allegiance updated.");
+                openBehavior(player, entity);
+            }
+            case 35 -> {
+                if (!plugin.permitted(player, StudioPermissions.ALLEGIANCE)) {
+                    plugin.send(player, plugin.msg("no-permission"));
+                    return;
+                }
+                rec.friendlyFireProtect(!rec.friendlyFireProtect());
+                plugin.send(player, rec.friendlyFireProtect()
+                        ? "<green>Friendly fire guard ON — allies won't hurt each other."
+                        : "<gray>Friendly fire guard OFF.");
                 openBehavior(player, entity);
             }
             case 32 -> {
@@ -1616,6 +2016,15 @@ public class StudioGUI implements Listener {
             plugin.send(player, plugin.msg("no-permission"));
             return;
         }
+        // The record about to be undone targets a specific entity: honor
+        // current protections even when the history page was opened stale.
+        EditRecord peek = plugin.history().peekFirst(player.getUniqueId());
+        if (peek != null) {
+            Entity target = Bukkit.getEntity(peek.entityUuid());
+            if (target != null && !plugin.checkTargetAccess(player, target)) {
+                return;
+            }
+        }
         HistoryService.UndoOutcome out = plugin.history().undoLast(player.getUniqueId());
         switch (out.result()) {
             case DONE -> plugin.send(player,
@@ -1624,14 +2033,18 @@ public class StudioGUI implements Listener {
             case IRREVERSIBLE -> plugin.send(player,
                     plugin.msg("undo-irreversible", "label",
                             out.record() == null ? "?" : out.record().label()));
-            case FAILED -> plugin.send(player, "<red>" + out.detail());
+            case FAILED -> {
+                plugin.getLogger().warning("Undo failed for " + player.getName()
+                        + ": " + out.detail());
+                plugin.send(player, "<red>Undo failed — see console.");
+            }
         }
         if (entity != null && Bukkit.getEntity(entity.getUniqueId()) != null) {
             openHistory(player, entity);
         }
     }
 
-    private void clickSnapshots(Player player, Entity entity, int slot) {
+    private void clickSnapshots(Player player, Entity entity, GuiHolder holder, int slot) {
         if (slot == 45 && entity != null) {
             openDashboard(player, entity);
             return;
@@ -1654,8 +2067,16 @@ public class StudioGUI implements Listener {
                 plugin.send(player, plugin.msg("no-permission"));
                 return;
             }
+            Entity target = resolve(player, holder);
+            if (target == null) {
+                return;
+            }
+            if (!plugin.checkTargetAccess(player, target)) {
+                player.closeInventory();
+                return;
+            }
             String name = names.get(slot);
-            int[] res = plugin.snapshots().applySnapshot(name, entity, player);
+            int[] res = plugin.snapshots().applySnapshot(name, target, player);
             plugin.send(player, "<green>Snapshot '<white>" + escape(name) + "<green>' restored: "
                     + res[0] + " changed, " + res[1] + " skipped.");
             openSnapshots(player, entity);
@@ -1666,12 +2087,21 @@ public class StudioGUI implements Listener {
             boolean right) {
         // Section-picker sub-page (opened via right-click).
         if (holder.data != null && holder.data.startsWith("sections:")) {
-            String preset = holder.data.substring("sections:".length());
-            Entity target = holder.entityUuid == null ? null : Bukkit.getEntity(holder.entityUuid);
-            if (target == null) {
+            // The picker outlives the click that opened it: re-check everything.
+            if (!plugin.permitted(player, StudioPermissions.PRESETS)) {
+                plugin.send(player, plugin.msg("no-permission"));
                 player.closeInventory();
                 return;
             }
+            Entity target = resolve(player, holder);
+            if (target == null) {
+                return;
+            }
+            if (!plugin.checkTargetAccess(player, target)) {
+                player.closeInventory();
+                return;
+            }
+            String preset = holder.data.substring("sections:".length());
             if (slot == 22) {
                 openPresets(player, target);
                 return;
@@ -1740,7 +2170,15 @@ public class StudioGUI implements Listener {
             player.openInventory(inv);
             return;
         }
-        int[] res = plugin.snapshots().applyPreset(name, entity,
+        Entity target = resolve(player, holder);
+        if (target == null) {
+            return;
+        }
+        if (!plugin.checkTargetAccess(player, target)) {
+            player.closeInventory();
+            return;
+        }
+        int[] res = plugin.snapshots().applyPreset(name, target,
                 EnumSet.allOf(com.entitystudio.snapshot.SnapshotService.Section.class), player);
         plugin.send(player, plugin.msg("preset-applied", "name", escape(name))
                 .replace("<changed>", String.valueOf(res[0])));
@@ -1754,10 +2192,18 @@ public class StudioGUI implements Listener {
             return;
         }
         if (slot == 11) {
-            Entity entity = Bukkit.getEntity(holder.entityUuid);
             confirms.remove(holder.data);
-            if (entity == null || !entity.isValid() || entity.isDead()) {
-                plugin.send(player, plugin.msg("session-invalid"));
+            // Re-validate everything: token creation-time checks are stale by now.
+            if (!plugin.permitted(player, entry.permissionNode())) {
+                plugin.send(player, plugin.msg("no-permission"));
+                player.closeInventory();
+                return;
+            }
+            Entity entity = resolve(player, holder);
+            if (entity == null) {
+                return;
+            }
+            if (!plugin.checkTargetAccess(player, entity)) {
                 player.closeInventory();
                 return;
             }
@@ -1813,9 +2259,9 @@ public class StudioGUI implements Listener {
     // ----------------------------------------------------------------- confirm
 
     public void confirm(Player player, Entity entity, String title, String question,
-            ConfirmAction action) {
+            String permissionNode, ConfirmAction action) {
         String token = UUID.randomUUID().toString();
-        confirms.put(token, new ConfirmEntry(title, question, action));
+        confirms.put(token, new ConfirmEntry(title, question, permissionNode, action));
         GuiHolder holder = new GuiHolder(Page.CONFIRM, entity.getUniqueId(), token, 0);
         Inventory inv = Bukkit.createInventory(holder, 27,
                 plugin.mm().deserialize("<dark_gray>" + escape(trunc(title, 24))));
@@ -1879,6 +2325,19 @@ public class StudioGUI implements Listener {
             plugin.send(player, plugin.msg("session-invalid"));
             return;
         }
+        if (entity != null) {
+            // Chat input arrives up to 60s after the click that requested it:
+            // the session, permissions, or target protections may have changed.
+            EditorSession s = plugin.sessions().get(player.getUniqueId());
+            if (s == null || !s.entityUuid().equals(entity.getUniqueId())
+                    || plugin.sessions().validate(plugin, s) != SessionManager.Validation.OK) {
+                plugin.send(player, plugin.msg("session-invalid"));
+                return;
+            }
+            if (!plugin.checkTargetAccess(player, entity)) {
+                return;
+            }
+        }
         switch (req.kind()) {
             case SEARCH -> {
                 if (entity == null) {
@@ -1902,7 +2361,8 @@ public class StudioGUI implements Listener {
                     return;
                 }
                 String err = plugin.properties().apply(player, entity, prop, parsed.value(),
-                        StudioPermissions.DATA_EDIT, plugin.history(),
+                        StudioPermissions.DATA_EDIT, node -> plugin.permitted(player, node),
+                        plugin.history(),
                         plugin.getConfig().getBoolean("settings.history.enabled", true));
                 if (err == null) {
                     plugin.send(player,
@@ -1911,6 +2371,35 @@ public class StudioGUI implements Listener {
                     plugin.send(player, "<red>" + err);
                 }
                 openProperties(player, entity, null);
+            }
+            case NAME_SET -> {
+                if (entity == null) {
+                    return;
+                }
+                if (!plugin.permitted(player, StudioPermissions.DATA_EDIT)) {
+                    plugin.send(player, plugin.msg("no-permission"));
+                    reopen(player, req.entityUuid());
+                    return;
+                }
+                if (text.length() > 256) {
+                    plugin.send(player, "<red>Name must be at most 256 characters.");
+                    pending.put(player.getUniqueId(), req);
+                    return;
+                }
+                String oldName = entity.getCustomName();
+                String shownOld = oldName == null || oldName.isBlank() ? "—" : oldName;
+                if (text.isBlank()) {
+                    entity.setCustomName(null);
+                    recordSimple(player, entity, "Custom name", shownOld, "—",
+                            e2 -> e2.setCustomName(oldName));
+                    plugin.send(player, "<gray>Custom name cleared.");
+                } else {
+                    entity.setCustomName(text);
+                    recordSimple(player, entity, "Custom name", shownOld, text,
+                            e2 -> e2.setCustomName(oldName));
+                    plugin.send(player, "<green>Custom name → <white>" + escape(text));
+                }
+                openDashboard(player, entity);
             }
             case ATTR_VALUE -> {
                 if (!(entity instanceof Attributable attr)) {
@@ -2135,7 +2624,7 @@ public class StudioGUI implements Listener {
                 if (entity == null) {
                     return;
                 }
-                if (!text.matches("[A-Za-z0-9 _-]{1,32}")) {
+                if (!com.entitystudio.snapshot.SnapshotService.isValidEntryName(text)) {
                     plugin.send(player, "<red>Use 1..32 letters, numbers, spaces, - or _.");
                     pending.put(player.getUniqueId(), req);
                     return;
@@ -2148,7 +2637,7 @@ public class StudioGUI implements Listener {
                 if (entity == null) {
                     return;
                 }
-                if (!text.matches("[A-Za-z0-9 _-]{1,32}")) {
+                if (!com.entitystudio.snapshot.SnapshotService.isValidEntryName(text)) {
                     plugin.send(player, "<red>Use 1..32 letters, numbers, spaces, - or _.");
                     pending.put(player.getUniqueId(), req);
                     return;
@@ -2242,7 +2731,11 @@ public class StudioGUI implements Listener {
 
     @EventHandler
     public void onQuit(PlayerQuitEvent event) {
+        // Sessions never survive a disconnect: the next login re-selects with
+        // fresh permission checks, and no stale lock can block other editors.
         pending.remove(event.getPlayer().getUniqueId());
+        plugin.selector().exitInspect(event.getPlayer().getUniqueId());
+        plugin.sessions().close(event.getPlayer().getUniqueId());
     }
 
     @EventHandler

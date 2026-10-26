@@ -29,6 +29,9 @@ public final class CapabilityRegistry {
             out.add(Capability.MOUNT_INVENTORY);
         } else if (entity instanceof InventoryHolder) {
             out.add(Capability.CONTAINER_INVENTORY);
+        } else {
+            // Every other entity gets the plugin-provided persistent stash.
+            out.add(Capability.VIRTUAL_STASH);
         }
         if (entity instanceof Merchant) {
             out.add(Capability.MERCHANT_OFFERS);

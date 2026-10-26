@@ -40,7 +40,11 @@ real entity change. No `/data` memorization.
 - **Snapshots & presets** — save, restore, preview exact field changes, apply
   properties/equipment/behavior selectively.
 - **Inventories** — player inventory + ender chest and mount/container
-  inventories open **live**. Offline player editing is explicitly unsupported.
+  inventories open **live** through a size-safe paged mirror (llama 8-slots
+  and friends can't crash it). Entities with no inventory of their own —
+  cows, pigs, creepers — get a persistent 27-slot plugin **stash**
+  (`stashes.yml`, kept across restarts, dropped if Studio removes the
+  entity). Offline player editing is explicitly unsupported.
 
 ## Activation & owner override (read this)
 
@@ -52,10 +56,42 @@ real entity change. No `/data` memorization.
   it is not hidden anywhere in the code. Change it to your name, or set it to
   `""` to disable it.
 
-## Permissions
+## Permissions & security model
 
-See `docs/permissions.md` — every page re-checks its node at click time; hidden
-buttons are never the security boundary.
+Full table in `docs/permissions.md`. The rules below are enforced in code
+and covered by unit tests (`GatekeeperTest`, `SessionManagerTest`,
+`HistoryServiceTest`, `AllegianceServiceTest`):
+
+- **Locked by default.** Every entry point (commands, shift + right-click,
+  inspect mode, tab completion) refuses while locked. No permission node
+  implies access before `/entity start`.
+- **Single enforcement point.** `plugin.yml` declares no blanket permission
+  on purpose, so Bukkit can't pre-empt the gate: the lock + owner check in
+  `StudioCommand` is the only door. Console is always trusted.
+- **Owner override, in the open.** The `settings.owner-name` account bypasses
+  permission *nodes* (including while locked) but never the lock decision
+  for others, and never protected entities. Declared in `config.yml`, logged
+  at every startup, `""` disables it.
+- **Granular nodes.** View vs edit are separate: `inventory.view` /
+  `data.view` open pages, `inventory.edit` / `data.edit` mutate; `behavior`
+  and `allegiance` cover AI vs ownership; `trades`, `snapshot`, `undo`,
+  `presets`, `player.edit`, `admin` cover the rest. Defaults are all `op` —
+  ordinary players get nothing.
+- **Sessions re-validate every mutation.** GUI clicks, chat input, preset/
+  snapshot applies, confirmations, and undos re-resolve the entity by UUID
+  and re-check lock, permissions, protected list, and concurrent editors.
+  Stale targets, despawned entities, and revoked permissions fail closed.
+- **Target protections.** `settings.security.protected-entities` (UUIDs,
+  bad entries logged + ignored) can never be edited, even by the owner.
+  Other players need `player.edit` (honors `protect-other-players`).
+  Sessions close on quit, so disconnects can't leave stale edit locks.
+- **Destructive actions need their node twice.** Remove-entity, clear-
+  equipment, and every confirm dialog re-check its node at *execution* time,
+  not just when the dialog opened — plus session + target checks.
+- **No secret leakage.** `/entity version` (reveals activation state) and
+  tab completion (subcommands, player names) are gated; player-facing errors
+  are generic while details go to the console log. Snapshot/preset names are
+  restricted to `[A-Za-z0-9 _-]{1,32}`.
 
 ## Build
 

@@ -7,15 +7,17 @@ authors: [EntityStudio]
 website: https://github.com/phantasmthenoob-tech/Trim
 
 commands:
+  # NOTE: no blanket `permission:` here on purpose. Bukkit would enforce it
+  # before our code runs and lock out the configured owner (who may lack op).
+  # The activation gate (locked plugin + owner override) and every subcommand's
+  # own node check in StudioCommand are the single enforcement point.
   entitystudio:
     description: Entity Studio administration and editor entry points.
     usage: /entitystudio [inspect|edit|undo|presets|snapshot|reload|version|start|menu]
     aliases: [es, estudio]
-    permission: entitystudio.use
   entity:
     description: Short alias for Entity Studio (activation + editor entry).
     usage: /entity [start|inspect|edit|undo|presets|snapshot|reload|version|menu]
-    permission: entitystudio.use
 
 permissions:
   entitystudio.use:

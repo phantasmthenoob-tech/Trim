@@ -7,6 +7,7 @@ import com.entitystudio.history.HistoryService;
 import com.entitystudio.permission.Gatekeeper;
 import com.entitystudio.permission.StudioPermissions;
 import com.entitystudio.persistence.ManagedStore;
+import com.entitystudio.persistence.VirtualStashService;
 import com.entitystudio.property.PropertyRegistry;
 import com.entitystudio.selection.EntitySelector;
 import com.entitystudio.session.SessionManager;
@@ -32,6 +33,7 @@ public class EntityStudioPlugin extends JavaPlugin implements SessionManager.Ent
     private AllegianceService allegiance;
     private SnapshotService snapshots;
     private ManagedStore managedStore;
+    private VirtualStashService stashes;
     private StudioGUI gui;
     private EntitySelector selector;
     private YamlConfiguration messages;
@@ -54,6 +56,8 @@ public class EntityStudioPlugin extends JavaPlugin implements SessionManager.Ent
         allegiance = new AllegianceService(this);
         snapshots = new SnapshotService(this);
         managedStore = new ManagedStore(this);
+        stashes = new VirtualStashService(this);
+        stashes.load();
         gui = new StudioGUI(this);
         selector = new EntitySelector(this);
 
@@ -88,6 +92,9 @@ public class EntityStudioPlugin extends JavaPlugin implements SessionManager.Ent
         if (managedStore != null
                 && getConfig().getBoolean("settings.behavior.persist-managed-settings", true)) {
             managedStore.save();
+        }
+        if (stashes != null) {
+            stashes.save();
         }
         saveActivation();
         getLogger().info("EntityStudio disabled.");
@@ -201,6 +208,11 @@ public class EntityStudioPlugin extends JavaPlugin implements SessionManager.Ent
         return getConfig().getBoolean("settings.editor.prevent-concurrent-editors", true);
     }
 
+    @Override
+    public boolean protectOtherPlayers() {
+        return getConfig().getBoolean("settings.security.protect-other-players", true);
+    }
+
     // ---- services ----
     public SessionManager sessions() {
         return sessions;
@@ -224,6 +236,10 @@ public class EntityStudioPlugin extends JavaPlugin implements SessionManager.Ent
 
     public ManagedStore managedStore() {
         return managedStore;
+    }
+
+    public VirtualStashService stashes() {
+        return stashes;
     }
 
     public StudioGUI gui() {

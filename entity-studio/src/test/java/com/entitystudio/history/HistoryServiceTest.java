@@ -64,6 +64,21 @@ class HistoryServiceTest {
     }
 
     @Test
+    void peekFirstDoesNotPop() {
+        HistoryService h = new HistoryService();
+        UUID actor = UUID.randomUUID();
+        assertNull(h.peekFirst(actor));
+        h.record(record(actor, "first", true, () -> {
+        }));
+        h.record(record(actor, "second", true, () -> {
+        }));
+        assertEquals("second", h.peekFirst(actor).label());
+        assertEquals(2, h.size(actor));
+        // undo still pops the same record peek returned
+        assertEquals("second", h.undoLast(actor).record().label());
+    }
+
+    @Test
     void recentRespectsLimit() {
         HistoryService h = new HistoryService();
         UUID actor = UUID.randomUUID();

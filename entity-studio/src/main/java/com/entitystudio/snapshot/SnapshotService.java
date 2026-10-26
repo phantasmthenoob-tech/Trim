@@ -30,6 +30,11 @@ public class SnapshotService {
 
     public static final int SCHEMA = 1;
 
+    /** Snapshot/preset names: filesystem- and YAML-safe, no path tricks. */
+    public static boolean isValidEntryName(String name) {
+        return name != null && name.matches("[A-Za-z0-9 _-]{1,32}");
+    }
+
     public enum Section {
         PROPERTIES, EQUIPMENT, BEHAVIOR,
     }
@@ -84,6 +89,7 @@ public class SnapshotService {
             b.put("defend-owner", rec.defendOwner());
             b.put("defend-allies", rec.defendAllies());
             b.put("retaliate", rec.retaliate());
+            b.put("friendly-fire", rec.friendlyFireProtect());
             out.put("behavior", b);
         }
         return out;
@@ -246,7 +252,7 @@ public class SnapshotService {
                     }
                     String err = plugin.properties().apply(actor, entity, prop, parsed.value(),
                             com.entitystudio.permission.StudioPermissions.DATA_EDIT,
-                            plugin.history(), true);
+                            node -> plugin.permitted(actor, node), plugin.history(), true);
                     if (err == null) {
                         changed++;
                     } else {
@@ -258,7 +264,7 @@ public class SnapshotService {
         if (sections.contains(Section.EQUIPMENT) && entity instanceof LivingEntity living
                 && living.getEquipment() != null) {
             ConfigurationSection eq = root.getConfigurationSection("equipment");
-            if (eq != null && actor.hasPermission(
+            if (eq != null && plugin.permitted(actor,
                     com.entitystudio.permission.StudioPermissions.INV_EDIT)) {
                 EntityEquipment slots = living.getEquipment();
                 changed += setSlot(eq, "main-hand", slots::setItemInMainHand) ? 1 : 0;
@@ -269,7 +275,7 @@ public class SnapshotService {
                 changed += setSlot(eq, "boots", slots::setBoots) ? 1 : 0;
             }
         }
-        if (sections.contains(Section.BEHAVIOR) && actor.hasPermission(
+        if (sections.contains(Section.BEHAVIOR) && plugin.permitted(actor,
                 com.entitystudio.permission.StudioPermissions.BEHAVIOR)) {
             ConfigurationSection b = root.getConfigurationSection("behavior");
             if (b != null) {
@@ -279,6 +285,10 @@ public class SnapshotService {
                     changed++;
                 } catch (IllegalArgumentException e) {
                     skipped++;
+                }
+                if (b.isSet("friendly-fire")) {
+                    r.friendlyFireProtect(b.getBoolean("friendly-fire", true));
+                    changed++;
                 }
             }
         }

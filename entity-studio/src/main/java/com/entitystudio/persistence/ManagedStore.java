@@ -75,6 +75,7 @@ public class ManagedStore {
                 r.defendAllies(s.getBoolean("allegiance.defend-allies", false));
                 r.retaliate(s.getBoolean("allegiance.retaliate", false));
                 r.attackOwnerTarget(s.getBoolean("allegiance.attack-owner-target", false));
+                r.friendlyFireProtect(s.getBoolean("allegiance.friendly-fire", true));
                 try {
                     r.profile(ManagedRecord.Profile.valueOf(
                             s.getString("behavior.profile", "CUSTOM").toUpperCase()));
@@ -115,6 +116,7 @@ public class ManagedStore {
             yaml.set(p + "allegiance.defend-allies", r.defendAllies());
             yaml.set(p + "allegiance.retaliate", r.retaliate());
             yaml.set(p + "allegiance.attack-owner-target", r.attackOwnerTarget());
+            yaml.set(p + "allegiance.friendly-fire", r.friendlyFireProtect());
             yaml.set(p + "behavior.profile", r.profile().name());
             yaml.set(p + "behavior.ai-enabled", r.aiEnabled());
             yaml.set(p + "behavior.anchored", r.anchored());

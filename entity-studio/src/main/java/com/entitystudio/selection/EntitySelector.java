@@ -42,6 +42,11 @@ public class EntitySelector implements Listener {
         return inspectMode.contains(player.getUniqueId());
     }
 
+    /** Clears inspect mode (e.g. on quit) so it can never linger. */
+    public void exitInspect(UUID playerUuid) {
+        inspectMode.remove(playerUuid);
+    }
+
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     public void onInteract(PlayerInteractEntityEvent event) {
         Player player = event.getPlayer();

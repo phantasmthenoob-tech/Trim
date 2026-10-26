@@ -97,14 +97,23 @@ public class StudioCommand implements CommandExecutor, TabCompleter {
                     + " or use <yellow>/entity inspect</yellow><gray> then click one.");
             return true;
         }
-        Entity entity = Bukkit.getEntity(session.entityUuid());
-        if (entity == null) {
-            plugin.send(p, plugin.msg("session-invalid"));
+        SessionManager.Validation v = plugin.sessions().validate(plugin, session);
+        if (v != SessionManager.Validation.OK) {
             plugin.sessions().close(p.getUniqueId());
+            plugin.send(p, describeValidation(v));
             return true;
         }
+        Entity entity = Bukkit.getEntity(session.entityUuid());
         plugin.gui().openDashboard(p, entity);
         return true;
+    }
+
+    private String describeValidation(SessionManager.Validation v) {
+        return switch (v) {
+            case PROTECTED -> plugin.msg("entity-protected");
+            case NO_ACCESS -> plugin.msg("no-permission");
+            default -> plugin.msg("session-invalid");
+        };
     }
 
     private boolean inspect(CommandSender sender) {
@@ -192,10 +201,26 @@ public class StudioCommand implements CommandExecutor, TabCompleter {
             plugin.send(p, plugin.msg("no-permission"));
             return true;
         }
-        EditorSession session = plugin.sessions().get(p.getUniqueId());
-        Entity entity = session == null ? null : Bukkit.getEntity(session.entityUuid());
-        plugin.gui().openPresets(p, entity);
+        plugin.gui().openPresets(p, validatedListEntity(p));
         return true;
+    }
+
+    /** Session entity for the list-style pages: validated when present,
+     * null (list-only mode) when the session lapsed. Denies on auth failures. */
+    private Entity validatedListEntity(Player p) {
+        EditorSession session = plugin.sessions().get(p.getUniqueId());
+        if (session == null) {
+            return null;
+        }
+        SessionManager.Validation v = plugin.sessions().validate(plugin, session);
+        if (v == SessionManager.Validation.OK) {
+            return Bukkit.getEntity(session.entityUuid());
+        }
+        plugin.sessions().close(p.getUniqueId());
+        if (v != SessionManager.Validation.ENTITY_GONE) {
+            plugin.send(p, describeValidation(v));
+        }
+        return null;
     }
 
     private boolean snapshots(CommandSender sender) {
@@ -207,9 +232,7 @@ public class StudioCommand implements CommandExecutor, TabCompleter {
             plugin.send(p, plugin.msg("no-permission"));
             return true;
         }
-        EditorSession session = plugin.sessions().get(p.getUniqueId());
-        Entity entity = session == null ? null : Bukkit.getEntity(session.entityUuid());
-        plugin.gui().openSnapshots(p, entity);
+        plugin.gui().openSnapshots(p, validatedListEntity(p));
         return true;
     }
 
@@ -233,6 +256,12 @@ public class StudioCommand implements CommandExecutor, TabCompleter {
     }
 
     private boolean version(CommandSender sender) {
+        // Activation state is access-controlled: no fingerprinting while locked.
+        if (sender instanceof Player p
+                && (!plugin.canUse(p) || !plugin.permitted(p, StudioPermissions.USE))) {
+            plugin.send(p, plugin.msg("no-permission"));
+            return true;
+        }
         String v = plugin.getDescription().getVersion();
         String m = "<gray>EntityStudio <aqua>" + v + "</aqua><gray> on "
                 + plugin.getServer().getVersion() + ". Activation: "
@@ -264,6 +293,12 @@ public class StudioCommand implements CommandExecutor, TabCompleter {
 
     @Override
     public List<String> onTabComplete(CommandSender sender, Command cmd, String alias, String[] args) {
+        // Silent gate: no subcommand or player-name enumeration before activation.
+        // Deliberately message-free so tab-completing never spams chat.
+        if (sender instanceof Player p && !plugin.gate()
+                .decide(p.getName(), p.isOp()).equals(Gatekeeper.Access.ALLOW)) {
+            return List.of();
+        }
         if (args.length == 1) {
             List<String> subs = List.of("start", "inspect", "edit", "undo", "presets",
                     "snapshot", "reload", "version", "menu");

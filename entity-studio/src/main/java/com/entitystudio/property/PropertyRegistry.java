@@ -2,6 +2,7 @@ package com.entitystudio.property;
 
 import com.entitystudio.history.EditRecord;
 import com.entitystudio.history.HistoryService;
+import org.bukkit.Bukkit;
 import org.bukkit.entity.Entity;
 import org.bukkit.entity.Player;
 
@@ -53,11 +54,15 @@ public class PropertyRegistry {
     /**
      * Guarded write: permission → validation → snapshot → write → history.
      * Must run on the server thread. Returns an error message or null on success.
+     *
+     * <p>The {@code authorizer} is normally {@code node -> plugin.permitted(actor, node)}
+     * so the configured owner bypass applies exactly like everywhere else.
      */
     @SuppressWarnings("unchecked")
     public static <T> String apply(Player actor, Entity entity, EntityProperty<T> prop,
-            T value, String permissionNode, HistoryService history, boolean recordHistory) {
-        if (!actor.hasPermission(permissionNode)) {
+            T value, String permissionNode, java.util.function.Predicate<String> authorizer,
+            HistoryService history, boolean recordHistory) {
+        if (!authorizer.test(permissionNode)) {
             return "Missing permission " + permissionNode + ".";
         }
         if (prop.support(entity) == EntityProperty.Support.UNSUPPORTED) {
@@ -77,7 +82,9 @@ public class PropertyRegistry {
         try {
             prop.write(entity, value);
         } catch (Exception e) {
-            return "Write failed: " + e.getMessage();
+            Bukkit.getLogger().warning("[EntityStudio] Property write failed for "
+                    + prop.id() + " on " + entity.getUniqueId() + ": " + e);
+            return "Write failed — see console.";
         }
         if (recordHistory && history != null) {
             String newValue = String.valueOf(value);

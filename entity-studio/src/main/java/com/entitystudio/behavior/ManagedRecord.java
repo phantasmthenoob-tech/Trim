@@ -30,6 +30,7 @@ public class ManagedRecord {
     private boolean attackOwnerTarget = false;
     private boolean pursueOutsideRange = true;
     private boolean clearInvalidTarget = true;
+    private boolean friendlyFireProtect = true;
     private Profile profile = Profile.CUSTOM;
     private boolean aiEnabled = true;
     private boolean anchored = false;
@@ -124,6 +125,19 @@ public class ManagedRecord {
 
     public void clearInvalidTarget(boolean v) {
         clearInvalidTarget = v;
+    }
+
+    public boolean friendlyFireProtect() {
+        return friendlyFireProtect;
+    }
+
+    public void friendlyFireProtect(boolean v) {
+        friendlyFireProtect = v;
+    }
+
+    /** The given UUID is this record's owner or a trusted ally. */
+    public boolean isAlly(UUID id) {
+        return id != null && (id.equals(owner) || trusted.contains(id));
     }
 
     public Profile profile() {

@@ -30,6 +30,9 @@ settings:
     persist-managed-settings: true
     default-retaliation: false
     protect-owner: true
+    # Same-owner / trusted mobs will not target or damage each other.
+    # Each managed entity can override this from its behavior page.
+    friendly-fire-protect: true
     # How often (ticks) anchored entities are reconciled. Higher = cheaper.
     anchor-check-ticks: 10
     # Soft anchors tolerate this many blocks of drift before pulling back.

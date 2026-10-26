@@ -44,4 +44,39 @@ class GatekeeperTest {
         assertFalse(g.isOwner("ImNotAllocate"));
         assertFalse(g.canStart("ImNotAllocate", false));
     }
+
+    @Test
+    void ownerNameNormalizedAndNullSafe() {
+        Gatekeeper g = new Gatekeeper("  ImNotAllocate  ", false);
+        assertTrue(g.isOwner("imnotallocate"));
+        assertFalse(g.isOwner(null));
+        assertFalse(g.isOwner("SomeoneElse"));
+        Gatekeeper nullOwner = new Gatekeeper(null, false);
+        assertFalse(nullOwner.isOwner("ImNotAllocate"));
+        assertFalse(nullOwner.ownerBypassesPermissions("ImNotAllocate"));
+    }
+
+    @Test
+    void nonOwnerCannotStartEvenWhenOp() {
+        Gatekeeper g = new Gatekeeper("ImNotAllocate", true);
+        assertFalse(g.canStart("SomeOp", false));
+        assertTrue(g.canStart("ImNotAllocate", false));
+    }
+
+    @Test
+    void ownerBypassFollowsOwnerFlag() {
+        Gatekeeper g = new Gatekeeper("ImNotAllocate", false);
+        assertTrue(g.ownerBypassesPermissions("IMNOTALLOCATE"));
+        assertFalse(g.ownerBypassesPermissions("SomeOp"));
+        assertFalse(g.ownerBypassesPermissions(null));
+    }
+
+    @Test
+    void activationToggles() {
+        Gatekeeper g = new Gatekeeper("ImNotAllocate", false);
+        assertFalse(g.isActive());
+        g.setActive(true);
+        assertTrue(g.isActive());
+        assertEquals(Gatekeeper.Access.ALLOW, g.decide("Anyone", false));
+    }
 }

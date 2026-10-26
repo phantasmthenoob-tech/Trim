@@ -9,6 +9,8 @@ public enum Capability {
     EQUIPMENT,
     /** Generic container inventory (chest boats, chest minecarts, hoppers...). */
     CONTAINER_INVENTORY,
+    /** Plugin-provided persistent stash for entities with no native inventory. */
+    VIRTUAL_STASH,
     /** Horse/donkey/mule/llama storage + saddle/armor. */
     MOUNT_INVENTORY,
     /** Full player inventory + ender chest (online; special offline flow). */
