@@ -273,6 +273,37 @@ excluded-beats-allowed, case-insensitivity, null type, no freelancing).
 **Live-server needs:** guard retaliation vs real arrows/melee, owner-offline
 defense, cross-world non-aggression, managed.yml reload after restart.
 
+## 13. Prompt-9 history review (2026-10-26) — undo, snapshots, irreversible labels
+
+**Undo gaps closed (all fresh-resolving, UUID-keyed, no live references):**
+chat-input allegiance edits (owner set/clear, trust add/del, enemy add/del,
+allowed/excluded filter set/clear — previously silent), target-clear
+(restores the old target by UUID, fails with `Previous target is gone` when
+it despawned), behavior-profile apply (two records: plugin-side flags +
+profile, and entity brain AI/awareness; the old attack target is NOT
+re-acquired — stated in the label), and both teleport paths (prior location
+restored; `Original world is gone` when the world unloaded).
+
+**Hardening:** `EditRecord` timestamp now stamped at creation (was
+`Instant.now()` on read, so every row showed "now"); `HistoryService`
+drops null records / missing actor-entity identity and null-guards all
+actor-keyed queries instead of throwing on the `ConcurrentHashMap`.
+History GUI already showed entity type + short UUID, before/after, risk,
+timestamp, and reversible markers — verified, no change needed. Limits:
+per-player bound from `settings.history.max-entries-per-player` (floor 10),
+wired on enable + reload.
+
+**Tests:** +3 `HistoryServiceTest` (sequential-edits reverse-order walk,
+irreversible-pops-then-older-still-undoes, invalid/null-entry drops).
+102/102 green headless on Paper 1.21.11 (full `gradle` unavailable in this
+environment; verified via `javac` + JUnit platform launcher against the
+cached dependency set — same sources the Gradle build compiles).
+**Docs:** new `docs/history.md` (exact restore table, non-reversible list,
+live-server verification gaps); README history bullet points at it.
+**Live-server needs:** undo vs despawned entity, undo after chunk
+unload/restart, teleport-back across world unload, fights with other
+plugins over the same entity.
+
 ## 8. Prioritized blockers for next stages
 
 1. **P1 — live-server verification.** Headless green is not proof on a

@@ -29,6 +29,11 @@ public class HistoryService {
     }
 
     public void record(EditRecord record) {
+        // Invalid entries (null record, missing actor/entity identity) are
+        // dropped instead of corrupting the stack or later undo lookups.
+        if (record == null || record.actorUuid() == null || record.entityUuid() == null) {
+            return;
+        }
         Deque<EditRecord> stack = stacks.computeIfAbsent(record.actorUuid(), k -> new ArrayDeque<>());
         synchronized (stack) {
             stack.addFirst(record);
@@ -39,6 +44,9 @@ public class HistoryService {
     }
 
     public List<EditRecord> recent(UUID actor, int limit) {
+        if (actor == null) {
+            return List.of();
+        }
         Deque<EditRecord> stack = stacks.get(actor);
         if (stack == null) {
             return List.of();
@@ -49,12 +57,18 @@ public class HistoryService {
     }
 
     public int size(UUID actor) {
+        if (actor == null) {
+            return 0;
+        }
         Deque<EditRecord> stack = stacks.get(actor);
         return stack == null ? 0 : stack.size();
     }
 
     /** Newest record without popping — lets callers pre-check its target. */
     public EditRecord peekFirst(UUID actor) {
+        if (actor == null) {
+            return null;
+        }
         Deque<EditRecord> stack = stacks.get(actor);
         if (stack == null) {
             return null;
@@ -65,11 +79,16 @@ public class HistoryService {
     }
 
     public void clear(UUID actor) {
-        stacks.remove(actor);
+        if (actor != null) {
+            stacks.remove(actor);
+        }
     }
 
     /** Pops the newest reversible record and runs its undo. */
     public UndoOutcome undoLast(UUID actor) {
+        if (actor == null) {
+            return new UndoOutcome(UndoResult.EMPTY, null, "Nothing to undo.");
+        }
         Deque<EditRecord> stack = stacks.get(actor);
         if (stack == null) {
             return new UndoOutcome(UndoResult.EMPTY, null, "Nothing to undo.");

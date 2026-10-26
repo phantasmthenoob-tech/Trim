@@ -1361,7 +1361,8 @@ public class StudioGUI implements Listener {
             lore.add("<gray>" + r.entityType().toLowerCase() + " <dark_gray>" + shortUuid(r.entityUuid()));
             lore.add("<gray>Was: <white>" + escape(trunc(r.oldValue(), 40)));
             lore.add("<gray>Now: <aqua>" + escape(trunc(r.newValue(), 40)));
-            lore.add("<gray>Risk: " + r.riskLevel().toLowerCase());
+            lore.add("<gray>Risk: " + r.riskLevel().toLowerCase()
+                    + " <dark_gray>" + timeOf(r.timestamp()));
             if (r.reversible()) {
                 lore.add("<yellow>Click to undo (newest first)");
             } else {
@@ -2201,7 +2202,10 @@ public class StudioGUI implements Listener {
             if (!(entity instanceof LivingEntity l)) {
                 return;
             }
+            org.bukkit.Location before = entity.getLocation().clone();
             entity.teleport(player.getLocation());
+            recordSimple(player, entity, "Teleport to admin", locStr(before),
+                    locStr(entity.getLocation()), e2 -> teleportBack(e2, before));
             plugin.send(player, "<gray>Teleported entity to you.");
             openBehavior(player, entity);
             return;
@@ -2235,7 +2239,10 @@ public class StudioGUI implements Listener {
                         plugin.send(player, plugin.msg("no-permission"));
                         return;
                     }
-                    m.setAware(!m.isAware());
+                    boolean old = m.isAware();
+                    m.setAware(!old);
+                    recordSimple(player, entity, "Aware", String.valueOf(old),
+                            String.valueOf(!old), e2 -> ((Mob) e2).setAware(old));
                     plugin.send(player,
                             "<green>Aware → <white>" + m.isAware());
                     openBehavior(player, entity);
@@ -2247,7 +2254,23 @@ public class StudioGUI implements Listener {
                         plugin.send(player, plugin.msg("no-permission"));
                         return;
                     }
+                    LivingEntity oldTarget = m.getTarget();
+                    UUID oldTargetUuid = oldTarget.getUniqueId();
+                    String oldTargetName = oldTarget.getType().name().toLowerCase();
                     m.setTarget(null);
+                    // Restore-by-UUID: the old target is re-resolved fresh at
+                    // undo time, so a despawned target fails safely instead
+                    // of resurrecting or retargeting the wrong entity.
+                    recordSimple(player, entity, "Clear target", oldTargetName, "none",
+                            e2 -> {
+                                Entity t = Bukkit.getEntity(oldTargetUuid);
+                                if (!(t instanceof LivingEntity lt) || !t.isValid()
+                                        || t.isDead()) {
+                                    throw new IllegalStateException(
+                                            "Previous target is gone.");
+                                }
+                                ((Mob) e2).setTarget(lt);
+                            });
                     plugin.send(player, "<gray>Target cleared.");
                     openBehavior(player, entity);
                 }
@@ -2264,8 +2287,42 @@ public class StudioGUI implements Listener {
                 ManagedRecord.Profile[] profiles = ManagedRecord.Profile.values();
                 int idx = slot - 19;
                 if (idx < profiles.length) {
+                    // Snapshot everything applyProfile touches: the undo
+                    // restores flags + brain state, but the previous attack
+                    // target is NOT re-acquired (stated in the label).
+                    ManagedRecord.Profile oldProfile = rec.profile();
+                    boolean oldAiFlag = rec.aiEnabled();
+                    boolean oD = rec.defendOwner(), oA = rec.defendAllies();
+                    boolean oR = rec.retaliate(), oJ = rec.attackOwnerTarget();
+                    boolean oldAi = m.hasAI(), oldAware = m.isAware();
+                    Entity curTarget = m.getTarget();
+                    String oldTargetName = curTarget == null ? "none"
+                            : curTarget.getType().name().toLowerCase();
                     String out = com.entitystudio.behavior.AllegianceService.applyProfile(m,
                             profiles[idx], rec);
+                    recordAllegiance(player, entity,
+                            "Apply profile " + profiles[idx].name().toLowerCase()
+                                    + " (target not restored)",
+                            oldProfile.name().toLowerCase() + "/target:" + oldTargetName,
+                            profiles[idx].name().toLowerCase() + "/target:none",
+                            r -> {
+                                r.profile(oldProfile);
+                                r.aiEnabled(oldAiFlag);
+                                r.defendOwner(oD);
+                                r.defendAllies(oA);
+                                r.retaliate(oR);
+                                r.attackOwnerTarget(oJ);
+                            });
+                    // Brain state lives on the entity, not the record:
+                    // restore it through a second fresh-resolving record.
+                    recordSimple(player, entity,
+                            "Profile brain state (" + profiles[idx].name().toLowerCase() + ")",
+                            "ai:" + oldAi + ",aware:" + oldAware,
+                            "ai:" + m.hasAI() + ",aware:" + m.isAware(),
+                            e2 -> {
+                                ((LivingEntity) e2).setAI(oldAi);
+                                ((Mob) e2).setAware(oldAware);
+                            });
                     plugin.send(player, "<green>" + out);
                     openBehavior(player, entity);
                 }
@@ -2275,6 +2332,16 @@ public class StudioGUI implements Listener {
                     plugin.send(player, plugin.msg("no-permission"));
                     return;
                 }
+                // Snapshot all four flags: the undo restores the exact prior
+                // combination, not just the toggled flag.
+                boolean oD = rec.defendOwner(), oA = rec.defendAllies();
+                boolean oR = rec.retaliate(), oJ = rec.attackOwnerTarget();
+                String name = switch (slot) {
+                    case 28 -> "Defend owner";
+                    case 29 -> "Defend trusted";
+                    case 30 -> "Retaliate";
+                    default -> "Attack owner's target";
+                };
                 switch (slot) {
                     case 28 -> rec.defendOwner(!rec.defendOwner());
                     case 29 -> rec.defendAllies(!rec.defendAllies());
@@ -2283,6 +2350,15 @@ public class StudioGUI implements Listener {
                     default -> {
                     }
                 }
+                boolean nD = rec.defendOwner(), nA = rec.defendAllies();
+                boolean nR = rec.retaliate(), nJ = rec.attackOwnerTarget();
+                recordAllegiance(player, entity, name + " rule",
+                        oldStr(oD, oA, oR, oJ), oldStr(nD, nA, nR, nJ), r -> {
+                            r.defendOwner(oD);
+                            r.defendAllies(oA);
+                            r.retaliate(oR);
+                            r.attackOwnerTarget(oJ);
+                        });
                 plugin.send(player, "<green>Allegiance updated.");
                 openBehavior(player, entity);
             }
@@ -2291,7 +2367,11 @@ public class StudioGUI implements Listener {
                     plugin.send(player, plugin.msg("no-permission"));
                     return;
                 }
-                rec.friendlyFireProtect(!rec.friendlyFireProtect());
+                boolean oldFf = rec.friendlyFireProtect();
+                rec.friendlyFireProtect(!oldFf);
+                recordAllegiance(player, entity, "Friendly fire guard",
+                        String.valueOf(oldFf), String.valueOf(!oldFf),
+                        r -> r.friendlyFireProtect(oldFf));
                 plugin.send(player, rec.friendlyFireProtect()
                         ? "<green>Friendly fire guard ON — allies won't hurt each other."
                         : "<gray>Friendly fire guard OFF.");
@@ -2303,7 +2383,11 @@ public class StudioGUI implements Listener {
                     return;
                 }
                 if (right) {
+                    UUID oldOwner = rec.owner();
                     rec.owner(null);
+                    recordAllegiance(player, entity, "Owner",
+                            oldOwner == null ? "none" : nameOf(oldOwner), "none",
+                            r -> r.owner(oldOwner));
                     plugin.send(player, "<gray>Owner cleared.");
                     openBehavior(player, entity);
                 } else {
@@ -2337,7 +2421,14 @@ public class StudioGUI implements Listener {
                     return;
                 }
                 if (right) {
+                    java.util.Set<String> old = new java.util.LinkedHashSet<>(rec.allowedTypes());
                     rec.allowedTypes().clear();
+                    recordAllegiance(player, entity, "Allowed types",
+                            old.isEmpty() ? "any" : String.join(", ", old), "any",
+                            r -> {
+                                r.allowedTypes().clear();
+                                r.allowedTypes().addAll(old);
+                            });
                     plugin.send(player, "<gray>Allowed-types filter cleared (any type engages).");
                     openBehavior(player, entity);
                 } else {
@@ -2351,7 +2442,14 @@ public class StudioGUI implements Listener {
                     return;
                 }
                 if (right) {
+                    java.util.Set<String> old = new java.util.LinkedHashSet<>(rec.excludedTypes());
                     rec.excludedTypes().clear();
+                    recordAllegiance(player, entity, "Excluded types",
+                            old.isEmpty() ? "none" : String.join(", ", old), "none",
+                            r -> {
+                                r.excludedTypes().clear();
+                                r.excludedTypes().addAll(old);
+                            });
                     plugin.send(player, "<gray>Excluded-types filter cleared.");
                     openBehavior(player, entity);
                 } else {
@@ -2365,14 +2463,36 @@ public class StudioGUI implements Listener {
                     return;
                 }
                 var at = entity.getLocation();
+                boolean wasAnchored = rec.anchored();
+                boolean wasHard = rec.hardAnchor();
+                String wasW = rec.anchorWorld();
+                double wasX = rec.anchorX(), wasY = rec.anchorY(), wasZ = rec.anchorZ();
+                float wasYaw = rec.anchorYaw(), wasPitch = rec.anchorPitch();
                 rec.setAnchor(true, slot == 38, at.getWorld().getName(), at.getX(), at.getY(),
                         at.getZ(), at.getYaw(), at.getPitch());
+                recordAllegiance(player, entity,
+                        (slot == 38 ? "Hard" : "Soft") + " anchor set",
+                        wasAnchored ? (wasHard ? "hard@" + wasW : "soft@" + wasW) : "none",
+                        slot == 38 ? "hard" : "soft",
+                        r -> r.setAnchor(wasAnchored, wasHard, wasW, wasX, wasY, wasZ, wasYaw,
+                                wasPitch));
                 plugin.send(player, "<green>" + (slot == 38 ? "Hard" : "Soft")
                         + " anchor set here.");
                 openBehavior(player, entity);
             }
             case 39 -> {
+                if (!plugin.permitted(player, StudioPermissions.BEHAVIOR)) {
+                    plugin.send(player, plugin.msg("no-permission"));
+                    return;
+                }
+                boolean wasHard = rec.hardAnchor();
+                String w = rec.anchorWorld();
+                double x = rec.anchorX(), y = rec.anchorY(), z = rec.anchorZ();
+                float yaw = rec.anchorYaw(), pitch = rec.anchorPitch();
                 rec.setAnchor(false, false, null, 0, 0, 0, 0, 0);
+                recordAllegiance(player, entity, "Anchor cleared",
+                        wasHard ? "hard" : "soft", "none",
+                        r -> r.setAnchor(true, wasHard, w, x, y, z, yaw, pitch));
                 plugin.send(player, "<gray>Anchor cleared.");
                 openBehavior(player, entity);
             }
@@ -2967,6 +3087,51 @@ public class StudioGUI implements Listener {
         void set(Entity entity) throws Exception;
     }
 
+    /** Plugin-side setter for allegiance undo (record re-resolved fresh). */
+    private interface AllegianceSetter {
+        void set(ManagedRecord record) throws Exception;
+    }
+
+    /** History entry for plugin-managed allegiance state. The undo
+     * re-resolves the live entity by UUID and restores the snapshotted
+     * plugin-side value — never a retained object reference. */
+    private void recordAllegiance(Player player, Entity entity, String label, String oldV,
+            String newV, AllegianceSetter restore) {
+        if (!plugin.getConfig().getBoolean("settings.history.enabled", true)) {
+            return;
+        }
+        plugin.history().record(new EditRecord(player.getUniqueId(), entity.getUniqueId(),
+                entity.getType().name(), label, oldV, newV, true, "NORMAL", () -> {
+                    Entity e = Bukkit.getEntity(entity.getUniqueId());
+                    if (e == null || !e.isValid() || e.isDead()) {
+                        throw new IllegalStateException("Entity is gone.");
+                    }
+                    restore.set(plugin.allegiance().getOrCreate(e));
+                }));
+    }
+
+    private static String oldStr(boolean d, boolean a, boolean r, boolean j) {
+        return "def:" + d + ",ally:" + a + ",ret:" + r + ",join:" + j;
+    }
+
+    private static String locStr(org.bukkit.Location loc) {
+        return loc.getWorld() == null ? "?"
+                : loc.getWorld().getName() + " " + loc.getBlockX() + ","
+                        + loc.getBlockY() + "," + loc.getBlockZ();
+    }
+
+    /** Teleports the re-resolved entity back to a snapshotted spot.
+     * The world must still be loaded — otherwise the undo fails safely. */
+    private static void teleportBack(Entity entity, org.bukkit.Location before) {
+        org.bukkit.World w = before.getWorld() == null ? null
+                : Bukkit.getWorld(before.getWorld().getUID());
+        if (w == null) {
+            throw new IllegalStateException("Original world is gone.");
+        }
+        entity.teleport(new org.bukkit.Location(w, before.getX(), before.getY(),
+                before.getZ(), before.getYaw(), before.getPitch()));
+    }
+
     private void recordSimple(Player player, Entity entity, String label, String oldV,
             String newV, EntitySetter restore) {
         if (!plugin.getConfig().getBoolean("settings.history.enabled", true)) {
@@ -3349,23 +3514,37 @@ public class StudioGUI implements Listener {
                 ManagedRecord rec = plugin.allegiance().getOrCreate(entity);
                 switch (req.kind()) {
                     case ALLY_OWNER -> {
+                        UUID oldOwner = rec.owner();
                         rec.owner(id);
+                        recordAllegiance(player, entity, "Owner",
+                                oldOwner == null ? "none" : nameOf(oldOwner), nameOf(id),
+                                r -> r.owner(oldOwner));
                         plugin.send(player, "<green>Owner set to <white>" + nameOf(id));
                     }
                     case TRUST_ADD -> {
                         rec.trusted().add(id);
+                        recordAllegiance(player, entity, "Trust " + nameOf(id), "untrusted",
+                                "trusted", r -> r.trusted().remove(id));
                         plugin.send(player, "<green>Trusted <white>" + nameOf(id));
                     }
                     case TRUST_DEL -> {
                         rec.trusted().remove(id);
+                        recordAllegiance(player, entity, "Untrust " + nameOf(id), "trusted",
+                                "untrusted", r -> r.trusted().add(id));
                         plugin.send(player, "<gray>Untrusted <white>" + nameOf(id));
                     }
                     case ENEMY_ADD -> {
                         rec.enemies().add(id);
-                        plugin.send(player, "<red>Marked enemy: <white>" + nameOf(id));
+                        recordAllegiance(player, entity, "Mark enemy " + nameOf(id)
+                                + " (retaliate only)", "neutral", "enemy",
+                                r -> r.enemies().remove(id));
+                        plugin.send(player,
+                                "<red>Marked enemy: <white>" + nameOf(id));
                     }
                     case ENEMY_DEL -> {
                         rec.enemies().remove(id);
+                        recordAllegiance(player, entity, "Unmark enemy " + nameOf(id),
+                                "enemy", "neutral", r -> r.enemies().add(id));
                         plugin.send(player, "<gray>Unmarked <white>" + nameOf(id));
                     }
                     default -> {
@@ -3392,8 +3571,20 @@ public class StudioGUI implements Listener {
                 ManagedRecord rec = plugin.allegiance().getOrCreate(entity);
                 java.util.Set<String> target = req.kind() == InputKind.ALLOW_TYPES
                         ? rec.allowedTypes() : rec.excludedTypes();
+                java.util.Set<String> oldFilter = new java.util.LinkedHashSet<>(target);
                 target.clear();
                 target.addAll(parsed.types());
+                java.util.Set<String> newFilter = new java.util.LinkedHashSet<>(target);
+                recordAllegiance(player, entity,
+                        req.kind() == InputKind.ALLOW_TYPES ? "Allowed types" : "Excluded types",
+                        oldFilter.isEmpty() ? "any" : String.join(", ", oldFilter),
+                        newFilter.isEmpty() ? "any" : String.join(", ", newFilter),
+                        r -> {
+                            java.util.Set<String> t = req.kind() == InputKind.ALLOW_TYPES
+                                    ? r.allowedTypes() : r.excludedTypes();
+                            t.clear();
+                            t.addAll(oldFilter);
+                        });
                 plugin.send(player, parsed.types().isEmpty()
                         ? "<gray>Filter cleared."
                         : "<green>Filter set: <white>"
@@ -3450,8 +3641,11 @@ public class StudioGUI implements Listener {
                         pending.put(player.getUniqueId(), req);
                         return;
                     }
+                    org.bukkit.Location beforeTp = entity.getLocation().clone();
                     entity.teleport(new org.bukkit.Location(entity.getWorld(), x, y, z, yaw,
                             pitch));
+                    recordSimple(player, entity, "Teleport", locStr(beforeTp),
+                            locStr(entity.getLocation()), e2 -> teleportBack(e2, beforeTp));
                     plugin.send(player, "<gray>Teleported.");
                 } catch (NumberFormatException e) {
                     plugin.send(player, "<red>Coordinates must be numbers.");
@@ -3711,6 +3905,18 @@ public class StudioGUI implements Listener {
 
     private static String shortUuid(UUID id) {
         return id.toString().substring(0, 8);
+    }
+
+    private static final java.time.format.DateTimeFormatter TIME_FMT =
+            java.time.format.DateTimeFormatter.ofPattern("HH:mm:ss");
+
+    private static String timeOf(java.time.Instant instant) {
+        try {
+            return TIME_FMT.format(java.time.ZonedDateTime.ofInstant(instant,
+                    java.time.ZoneId.systemDefault()));
+        } catch (Exception e) {
+            return "?";
+        }
     }
 
     private static String loc(Entity e) {

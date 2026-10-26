@@ -44,8 +44,10 @@ real entity change. No `/data` memorization.
   and level via properties.
 - **Advanced data (read-only)** — PDC entries, derived facts, filter +
   paging; click a row for the full value in chat. No write path by design.
-- **History** — every edit records before/after; undo for reversible ops;
-  honest "cannot be undone" for the rest.
+- **History** — every edit records actor/entity UUID, type, timestamp, and
+  before/after; newest-first bounded per-player undo with re-checked
+  permissions; honest "cannot be undone" for the rest. Exact restore
+  table in `docs/history.md`.
 - **Snapshots & presets** — save, restore, preview exact field changes, apply
   properties/equipment/behavior selectively.
 - **Inventories** — player inventory + ender chest open **live** (viewing the
