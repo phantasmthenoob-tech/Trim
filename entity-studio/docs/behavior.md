@@ -93,8 +93,12 @@ Managed allegiance passes to children automatically:
 - **Breeding** (`EntityBreedEvent`): the baby copies the managed mother or
   father (mother wins) — owner, trusted, enemies, filters, defense flags,
   profile, brain state. Exact parents, no guessing.
-- **Slime splits** (`SLIME_SPLIT`): each child takes the nearest managed
-  mob of the same type within 16 blocks.
+- **Slime splits** (`SLIME_SPLIT`): each child matches a pre-death snapshot
+  (same type, same world, within 24 blocks and 30 seconds), falling back to
+  the nearest live managed mob of the same type within 16 blocks. The
+  snapshot exists because death is processed *before* the split on this
+  Paper line (verified live): the parent's record rests in a 60-second
+  `recentlyDead` hold instead of vanishing between the two events.
 - **Summons** (`SPELL`, e.g. evoker vexes): the spawn takes the nearest
   managed mob within 16 blocks, any type.
 

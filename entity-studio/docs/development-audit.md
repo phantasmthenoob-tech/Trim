@@ -438,6 +438,35 @@ in a real raid, bred-baby guard behavior, aggressive cow actually walking
 to and hitting a zombie, aggressive zombie still using vanilla melee only
 (no double-hit from the assist path).
 
+## 18. Live-server verification (2026-10-26) — real Paper 1.21.11, build 132
+
+Hosted a throwaway Paper 1.21.11 server in-VM (flat world, offline mode,
+no players) with EntityStudio v0.2.0 plus a harness plugin that drives the
+real API and logs PASS/FAIL (harness lives in untracked `mc-test/`, never
+shipped). Headless suites can't tick entities, fire spawn events, or split
+slimes, so this closed the loop.
+
+**Result: `split=PASS aggro=PASS breed=PASS`** (all inside ~10 seconds):
+an aggressive cow acquired a nearby pig, walked to it, and killed it with
+the 1.0 contact assist (`ENTITY_ATTACK damager=COW` in the log); a baby of
+a managed pair carried the owner's record; all four size-2 slime children of
+a managed size-4 slime carried the donor's record and GUARD profile.
+EntityStudio enabled with zero errors on the real build-132 server.
+
+**Two real bugs found and fixed by this exercise:**
+1. *No-player chunk purge*: with zero players online, spawn chunks unload
+   within a second and take test mobs with them — harness now force-loads
+   its arena (test-only lesson, no plugin change).
+2. *Death-before-split ordering*: on this Paper line `EntityDeathEvent`
+   fires before `SlimeSplitEvent`, so the first implementation's same-tick
+   record removal orphaned every split child. Dying records now rest in a
+   60-second `recentlyDead` hold (pruned in reconcile) instead of
+   vanishing; split snapshots consult it. Verified PASS after the fix.
+
+**Still player-gated (needs a human client):** GUI click-throughs, shift-
+click selection feel, nameplate/filter UX. Live-verified server mechanics
+are listed per-stage above.
+
 ## 8. Prioritized blockers for next stages
 
 1. **P1 — live-server verification.** Headless green is not proof on a

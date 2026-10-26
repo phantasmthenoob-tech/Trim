@@ -94,4 +94,27 @@ class InheritanceTest {
         assertNull(AllegianceService.nearestDonor(List.of(), at, null));
         assertNull(AllegianceService.nearestDonor(cands, null, null));
     }
+
+    @Test
+    void splitSnapshotPicksNearestFreshSameType() {
+        World w = fakeWorld("world");
+        ManagedRecord donor = donor();
+        var near = new AllegianceService.SplitNote(donor,
+                new Location(w, 3, 0, 0), "SLIME", 1000L);
+        var far = new AllegianceService.SplitNote(donor,
+                new Location(w, 15, 0, 0), "SLIME", 1000L);
+        var wrongType = new AllegianceService.SplitNote(donor,
+                new Location(w, 1, 0, 0), "ZOMBIE", 1000L);
+        var otherWorld = new AllegianceService.SplitNote(donor,
+                new Location(fakeWorld("nether"), 1, 0, 0), "SLIME", 1000L);
+        var stale = new AllegianceService.SplitNote(donor,
+                new Location(w, 1, 0, 0), "SLIME", 1000L);
+        Location at = new Location(w, 0, 0, 0);
+        List<AllegianceService.SplitNote> notes = List.of(far, wrongType, otherWorld, near);
+        assertEquals(near, AllegianceService.pickSplit(notes, at, "SLIME", 2000L));
+        assertNull(AllegianceService.pickSplit(notes, at, "CREEPER", 2000L));
+        assertNull(AllegianceService.pickSplit(List.of(stale), at, "SLIME", 100_000L));
+        assertNull(AllegianceService.pickSplit(List.of(), at, "SLIME", 2000L));
+        assertNull(AllegianceService.pickSplit(notes, null, "SLIME", 2000L));
+    }
 }

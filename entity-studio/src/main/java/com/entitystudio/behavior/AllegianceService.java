@@ -142,6 +142,8 @@ public class AllegianceService implements Listener {
      * fighting over the same mob. Touches managed mobs only — never scans
      * every entity in any world. */
     private void reconcileManaged() {
+        long now = System.currentTimeMillis();
+        recentlyDead.entrySet().removeIf(e -> now - e.getValue().time() > 60_000);
         for (ManagedRecord record : managed.values()) {
             Entity entity = Bukkit.getEntity(record.entityUuid());
             if (!(entity instanceof Mob mob) || !entity.isValid() || entity.isDead()) {
@@ -470,10 +472,54 @@ public class AllegianceService implements Listener {
         inheritAllegiance(donor, event.getEntity());
     }
 
+    /** Records of just-died mobs, kept briefly so post-mortem children can
+     * still inherit: EntityDeathEvent fires BEFORE SlimeSplitEvent on this
+     * Paper line (verified live), so a same-tick map removal would leave
+     * split children orphaned. Never reconciled; pruned after 60 seconds. */
+    private final Map<UUID, DeadNote> recentlyDead = new ConcurrentHashMap<>();
+
+    record DeadNote(ManagedRecord record, long time) {
+    }
+
+    /** Pending split snapshot: the parent is already dead when SLIME_SPLIT
+     * children spawn, so the donor is snapshotted while it is still alive. */
+    private final Map<UUID, SplitNote> pendingSplits = new ConcurrentHashMap<>();
+
+    record SplitNote(ManagedRecord donor, Location at, String type, long time) {
+    }
+
+    /** Snapshots a managed slime's allegiance before it dies splitting —
+     * without this the children would find only a removed record. */
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    public void onSlimeSplit(org.bukkit.event.entity.SlimeSplitEvent event) {
+        if (!plugin.getConfig().getBoolean("settings.behavior.enable-custom-allegiance", true)) {
+            return;
+        }
+        ManagedRecord donor = managed.get(event.getEntity().getUniqueId());
+        if (donor == null) {
+            donor = recentDonor(event.getEntity().getUniqueId());
+        }
+        if (donor == null) {
+            return;
+        }
+        ManagedRecord snap = new ManagedRecord(event.getEntity().getUniqueId());
+        copyAllegiance(donor, snap);
+        Location at;
+        try {
+            at = event.getEntity().getLocation().clone();
+        } catch (Exception e) {
+            return;
+        }
+        pendingSplits.put(event.getEntity().getUniqueId(),
+                new SplitNote(snap, at, event.getEntity().getType().name(),
+                        System.currentTimeMillis()));
+    }
+
     /** Summon/split inheritance (best-effort donor search): evoker vexes
-     * (SPELL) and slime children (SLIME_SPLIT) take the nearest managed mob
-     * within 16 blocks — same type required for splits. BREEDING is owned by
-     * onBreed above, which has the exact parents. */
+     * (SPELL) take the nearest managed mob within 16 blocks; slime children
+     * (SLIME_SPLIT) match a pre-death snapshot first, then the nearest live
+     * same-type donor. BREEDING is owned by onBreed above, which has the
+     * exact parents. */
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void onCreatureSpawn(CreatureSpawnEvent event) {
         if (!plugin.getConfig().getBoolean("settings.behavior.enable-custom-allegiance", true)) {
@@ -488,6 +534,9 @@ public class AllegianceService implements Listener {
         }
         String type = null;
         if (reason == CreatureSpawnEvent.SpawnReason.SLIME_SPLIT) {
+            if (inheritSplit(event)) {
+                return;
+            }
             type = event.getEntity().getType().name();
         } else if (reason != CreatureSpawnEvent.SpawnReason.SPELL) {
             return;
@@ -514,6 +563,57 @@ public class AllegianceService implements Listener {
             return;
         }
         inheritAllegiance(donor, event.getEntity());
+    }
+
+    /** Matches a SLIME_SPLIT child to a pre-death snapshot: same type, same
+     * world, within 24 blocks, snapshotted under 30 seconds ago. Stale
+     * snapshots are pruned on every split spawn. */
+    boolean inheritSplit(CreatureSpawnEvent event) {
+        long now = System.currentTimeMillis();
+        pendingSplits.entrySet().removeIf(e -> now - e.getValue().time() > 60_000);
+        Location at = event.getLocation();
+        if (at == null) {
+            return false;
+        }
+        SplitNote best = pickSplit(pendingSplits.values(), at,
+                event.getEntity().getType().name(), now);
+        if (best == null) {
+            return false;
+        }
+        inheritAllegiance(best.donor(), event.getEntity());
+        return true;
+    }
+
+    /** Pure snapshot pick (unit tested): nearest same-type snapshot in the
+     * same world within 24 blocks and 30 seconds. */
+    static SplitNote pickSplit(java.util.Collection<SplitNote> notes, Location at,
+            String type, long now) {
+        if (at == null || at.getWorld() == null) {
+            return null;
+        }
+        SplitNote best = null;
+        double bestDist = 24.0 * 24.0;
+        for (SplitNote note : notes) {
+            if (!type.equals(note.type()) || note.at() == null
+                    || note.at().getWorld() == null
+                    || !note.at().getWorld().getName().equals(at.getWorld().getName())) {
+                continue;
+            }
+            if (now - note.time() > 30_000) {
+                continue;
+            }
+            double d;
+            try {
+                d = note.at().distanceSquared(at);
+            } catch (Exception e) {
+                continue;
+            }
+            if (d <= bestDist) {
+                bestDist = d;
+                best = note;
+            }
+        }
+        return best;
     }
 
     private ManagedRecord firstManaged(LivingEntity... entities) {
@@ -664,21 +764,39 @@ public class AllegianceService implements Listener {
         }
     }
 
-    /** Cleanup on death. A dead mob never returns under the same UUID, so its
-     * managed record is permanently useless: drop it instead of reconciling
-     * a ghost forever. Chunk unloads do NOT fire this event, so guards that
-     * unload keep their configuration and reconcile when available again.
-     * Players respawn under the SAME UUID, so player records are kept —
-     * only genuinely one-way entity UUIDs are pruned, including from every
-     * other record's trusted/enemy lists and owner slots that referenced
-     * the dead entity. */
+    /** Returns a just-died donor record (under 60 seconds old) or null.
+     * Used when the live map no longer has it — death is processed before
+     * split/summon follow-ups on this Paper line. */
+    private ManagedRecord recentDonor(UUID id) {
+        DeadNote note = recentlyDead.get(id);
+        if (note == null) {
+            return null;
+        }
+        if (System.currentTimeMillis() - note.time() > 60_000) {
+            recentlyDead.remove(id);
+            return null;
+        }
+        return note.record();
+    }
+
+    /** Cleanup on death. The record leaves the live map (a dead mob never
+     * returns under the same UUID) and rests in {@code recentlyDead} for 60
+     * seconds so post-mortem children can still inherit from it. Chunk
+     * unloads do NOT fire this event, so guards that unload keep their
+     * configuration and reconcile when available again. Players respawn
+     * under the SAME UUID, so player records are kept — only genuinely
+     * one-way entity UUIDs are pruned, including from every other record's
+     * trusted/enemy lists and owner slots that referenced the dead entity. */
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void onDeath(org.bukkit.event.entity.EntityDeathEvent event) {
         UUID dead = event.getEntity().getUniqueId();
         if (event.getEntity() instanceof Player) {
             return; // same UUID on respawn: keep the player's record
         }
-        managed.remove(dead);
+        ManagedRecord gone = managed.remove(dead);
+        if (gone != null) {
+            recentlyDead.put(dead, new DeadNote(gone, System.currentTimeMillis()));
+        }
         for (ManagedRecord r : managed.values()) {
             r.trusted().remove(dead);
             r.enemies().remove(dead);
