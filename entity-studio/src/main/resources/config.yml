@@ -1,0 +1,51 @@
+###############################################################################
+# Entity Studio v${version} — visual entity editor for Paper 1.21.x
+#
+# The plugin starts LOCKED. An operator must run "/entity start" (or
+# "/entitystudio start") after every restart before the editor commands
+# work for ops. The configured owner (below) can always use the commands,
+# with or without op — see "owner-name".
+###############################################################################
+
+settings:
+  # Account that may always use Entity Studio, even while locked and even
+  # without op. This is intentionally visible here (not hidden in code) so
+  # every server owner can see and change it. Set to "" to disable.
+  owner-name: "ImNotAllocate"
+
+  interaction:
+    enabled: true
+    # Shift + right-click an entity to open its editor.
+    require-sneaking: true
+    main-hand-only: true
+
+  editor:
+    live-editing: true
+    confirm-destructive-actions: true
+    close-on-target-invalid: true
+    prevent-concurrent-editors: true
+
+  behavior:
+    enable-custom-allegiance: true
+    persist-managed-settings: true
+    default-retaliation: false
+    protect-owner: true
+    # How often (ticks) anchored entities are reconciled. Higher = cheaper.
+    anchor-check-ticks: 10
+    # Soft anchors tolerate this many blocks of drift before pulling back.
+    soft-anchor-tolerance: 3.0
+
+  advanced-data:
+    enabled: true
+    allow-internal-access: false
+    preserve-unknown-fields: true
+
+  history:
+    enabled: true
+    max-entries-per-player: 500
+
+  security:
+    protect-other-players: true
+    require-permission-for-every-write: true
+    # Entity UUIDs that can never be edited, even by the owner.
+    protected-entities: []

@@ -1,0 +1,76 @@
+name: EntityStudio
+version: '${version}'
+main: com.entitystudio.EntityStudioPlugin
+api-version: '1.21'
+description: Visual entity editor for Minecraft Java 1.21 ( Paper plugin).
+authors: [EntityStudio]
+website: https://github.com/phantasmthenoob-tech/Trim
+
+commands:
+  entitystudio:
+    description: Entity Studio administration and editor entry points.
+    usage: /entitystudio [inspect|edit|undo|presets|snapshot|reload|version|start|menu]
+    aliases: [es, estudio]
+    permission: entitystudio.use
+  entity:
+    description: Short alias for Entity Studio (activation + editor entry).
+    usage: /entity [start|inspect|edit|undo|presets|snapshot|reload|version|menu]
+    permission: entitystudio.use
+
+permissions:
+  entitystudio.use:
+    description: Open the editor.
+    default: op
+  entitystudio.inspect:
+    description: Inspect entity properties.
+    default: op
+  entitystudio.inventory.view:
+    description: View inventories.
+    default: op
+  entitystudio.inventory.edit:
+    description: Edit inventories.
+    default: op
+  entitystudio.data.view:
+    description: View advanced data.
+    default: op
+  entitystudio.data.edit:
+    description: Modify supported data.
+    default: op
+  entitystudio.behavior:
+    description: Edit AI and behavior.
+    default: op
+  entitystudio.allegiance:
+    description: Edit ownership and targeting.
+    default: op
+  entitystudio.trades:
+    description: Edit merchant offers.
+    default: op
+  entitystudio.snapshot:
+    description: Create and restore snapshots.
+    default: op
+  entitystudio.undo:
+    description: Undo eligible edits.
+    default: op
+  entitystudio.presets:
+    description: Create and apply presets.
+    default: op
+  entitystudio.player.edit:
+    description: Edit other players.
+    default: op
+  entitystudio.admin:
+    description: Administrative controls (reload, activation state).
+    default: op
+    children:
+      entitystudio.use: true
+      entitystudio.inspect: true
+      entitystudio.inventory.view: true
+      entitystudio.inventory.edit: true
+      entitystudio.data.view: true
+      entitystudio.data.edit: true
+      entitystudio.behavior: true
+      entitystudio.allegiance: true
+      entitystudio.trades: true
+      entitystudio.snapshot: true
+      entitystudio.undo: true
+      entitystudio.presets: true
+      entitystudio.player.edit: true
