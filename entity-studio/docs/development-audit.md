@@ -242,6 +242,37 @@ existing `AllegianceRulesTest` (7). 92/92 green on Paper 1.21.11.
 **Live-server needs:** in-game guard retaliation vs arrows/melee, Warden
 behavior under PASSIVE, anchor jitter feel, two-plugin target fights.
 
+## 12. Prompt-8 allegiance audit (2026-10-26) — custom allegiance hardening
+
+**Native non-interference verified by search:** no `setOwner` call exists
+anywhere; the only `Tameable` writes are the honestly-labeled native
+`tamed`/`sitting` toggles. Allegiance owner is a UUID in the plugin record
+only; `tame.owner_uuid` stays read-only.
+
+**Safety fixes:** `engageable()` now refuses cross-world targets (a mob
+can never path across dimensions — previously a meaningless cross-world
+aggro assignment); `onDeath` skips players (same UUID on respawn keeps
+its record) while dead non-player entities are forgotten *and* pruned
+from every record's trusted/enemy/owner references; owner matching is
+UUID-only so offline owners keep working with no online lookup on the hot
+path. Loop-freedom re-verified: friendly-fire HIGH cancel precedes MONITOR
+retaliation (`ignoreCancelled`), null-target returns terminate clear
+chains, the timer never assigns attack targets.
+
+**Persistence fixed + tested:** allowed/excluded types, pursue-range, and
+clear-invalid-target flags were GUI-editable but never saved — now
+persisted via the new pure `ManagedCodec` (encode/decode on plain maps;
+`ManagedStore` load/save delegate to it). Per-field quarantine with log
+lines, bad-UUID entry skips, unknown-field tolerance, identical defaults.
+
+**Tests:** `ManagedCodecTest` (6: full round-trip, defaults parity,
+per-field quarantine, null entry, future-field tolerance, YAML-shape
+contract) + new `AllegianceRulesTest` priority cases (trusted-beats-enemy,
+excluded-beats-allowed, case-insensitivity, null type, no freelancing).
+99/99 green on Paper 1.21.11.
+**Live-server needs:** guard retaliation vs real arrows/melee, owner-offline
+defense, cross-world non-aggression, managed.yml reload after restart.
+
 ## 8. Prioritized blockers for next stages
 
 1. **P1 — live-server verification.** Headless green is not proof on a

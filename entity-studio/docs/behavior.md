@@ -89,6 +89,60 @@ Editor closure changes nothing (records persist by design);
 keeping it would reconcile a ghost and accumulate dead entries in
 `managed.yml`.
 
+## Custom allegiance: priority, scope, persistence
+
+Plugin-managed allegiance is **not vanilla taming** and never touches it:
+no code path calls `Tameable.setOwner`, and assigning a guard owner writes
+a UUID into the plugin record only. A guarded zombie is not a tamed wolf —
+death messages, breeding, and other plugins all still see an untamed mob.
+The behavior page labels this explicitly, and `tame.owner_uuid` is a
+read-only display of the *native* owner for comparison.
+
+**Deterministic targeting priority** (every engagement passes through it):
+1. Validity — invalid, dead, or self targets are dropped.
+2. World — cross-world targets are refused (a mob can never path there).
+3. Exclusions — owner, trusted allies, protected players, and allegiance
+   family always win, even over an explicit-enemy mark.
+4. Type filters — excluded types dropped; a non-empty allow-list drops
+   everything not listed.
+5. Explicit enemy / retaliation / defense / join signal → attack.
+Conflicts resolve in that order: trusted beats enemy, owner beats all,
+excluded beats allowed. Guards never freelance — a valid bystander with no
+rule is ignored.
+
+**Owner-selected opponents** work through "attack owner's target": when
+the owner damages a valid living entity, managed guards engage it if it
+passes the priority above. The owner is matched by UUID, so **offline
+owners keep working** — no online lookup is ever required on the hot path.
+Dead, unloaded, or removed targets resolve to null and end the session or
+skip the tick; nothing ever edits the entity at a stale location.
+
+**No targeting loops, by construction:** retaliation runs on MONITOR with
+`ignoreCancelled`, after the HIGH friendly-fire cancel (family hits never
+reach it); target-clearing `setTarget(null)` terminates because null
+targets return early from the target handler; vanilla-set family targets
+are cancelled once, not fought every tick; the timer only re-asserts
+PASSIVE suppression and AI state, never assigns attack targets on a loop.
+
+**Per-category support:**
+- Full (retaliate / defend / join / family / filters / anchors): all `Mob`s
+  with working `setTarget` (zombies, skeletons, illagers, wolves-as-mobs, etc.).
+- Best-effort: Warden (vibration anger bypasses awareness), bosses
+  (phases override targets), flyers/swimmers (anchors fight movement).
+- Partial: non-Mob living entities — friendly-fire protection only (any
+  living attacker/victim pair); profiles and engagement need `Mob`.
+- None: non-living entities (projectiles, vehicles, items, blocks).
+
+**Persistence (`managed.yml`, schema 1):** UUID-keyed records holding
+owner, trusted, enemies, allowed/excluded types, all rule flags, profile,
+AI state, and anchor. Managed by the pure `ManagedCodec` (encode/decode on
+plain maps, headless-tested): corrupt fields are quarantined individually
+with a log line while valid fields still load; bad-UUID entries are
+skipped; unknown future fields are ignored. Player records survive death
+(same UUID on respawn); dead non-player entities are forgotten *and*
+pruned from every other record's trusted/enemy/owner references; entity
+removal by the editor forgets immediately so no ghost accumulates.
+
 ## Known limitations (complex mobs & bosses)
 
 - **Warden**: vibration-driven anger, sniffing, and sonic boom ignore

@@ -59,37 +59,18 @@ public class ManagedStore {
                 continue;
             }
             try {
-                ManagedRecord r = new ManagedRecord(id);
-                r.entityType(s.getString("type", "UNKNOWN"));
-                String owner = s.getString("allegiance.owner", null);
-                if (owner != null && !owner.isBlank()) {
-                    r.owner(UUID.fromString(owner));
+                // Plain-map form feeds the pure codec: per-field quarantine
+                // with the same defaults the loader always had.
+                ManagedCodec.DecodeResult decoded =
+                        ManagedCodec.decode(id, toPlainMap(s));
+                for (String problem : decoded.problems()) {
+                    plugin.getLogger().warning("Quarantining managed.yml field "
+                            + key + "/" + problem);
                 }
-                for (String t : s.getStringList("allegiance.trusted")) {
-                    r.trusted().add(UUID.fromString(t));
+                if (!decoded.clean()) {
+                    bad++;
                 }
-                for (String t : s.getStringList("allegiance.enemies")) {
-                    r.enemies().add(UUID.fromString(t));
-                }
-                r.defendOwner(s.getBoolean("allegiance.defend-owner", true));
-                r.defendAllies(s.getBoolean("allegiance.defend-allies", false));
-                r.retaliate(s.getBoolean("allegiance.retaliate", false));
-                r.attackOwnerTarget(s.getBoolean("allegiance.attack-owner-target", false));
-                r.friendlyFireProtect(s.getBoolean("allegiance.friendly-fire", true));
-                try {
-                    r.profile(ManagedRecord.Profile.valueOf(
-                            s.getString("behavior.profile", "CUSTOM").toUpperCase()));
-                } catch (IllegalArgumentException ignored) {
-                    r.profile(ManagedRecord.Profile.CUSTOM);
-                }
-                r.aiEnabled(s.getBoolean("behavior.ai-enabled", true));
-                if (s.getBoolean("behavior.anchored", false)) {
-                    r.setAnchor(true, s.getBoolean("behavior.hard-anchor", false),
-                            s.getString("behavior.world", null),
-                            s.getDouble("behavior.x"), s.getDouble("behavior.y"), s.getDouble("behavior.z"),
-                            (float) s.getDouble("behavior.yaw"), (float) s.getDouble("behavior.pitch"));
-                }
-                plugin.allegiance().all().put(id, r);
+                plugin.allegiance().all().put(id, decoded.record());
             } catch (Exception e) {
                 plugin.getLogger().log(Level.WARNING,
                         "Quarantining corrupt managed.yml entry " + key + ": " + e.getMessage());
@@ -105,33 +86,46 @@ public class ManagedStore {
         YamlConfiguration yaml = new YamlConfiguration();
         yaml.set("schema-version", SCHEMA);
         for (ManagedRecord r : plugin.allegiance().all().values()) {
-            String p = "entities." + r.entityUuid() + ".";
-            yaml.set(p + "type", r.entityType());
-            yaml.set(p + "allegiance.owner", r.owner() == null ? null : r.owner().toString());
-            yaml.set(p + "allegiance.trusted", new ArrayList<>(r.trusted()).stream()
-                    .map(UUID::toString).toList());
-            yaml.set(p + "allegiance.enemies", new ArrayList<>(r.enemies()).stream()
-                    .map(UUID::toString).toList());
-            yaml.set(p + "allegiance.defend-owner", r.defendOwner());
-            yaml.set(p + "allegiance.defend-allies", r.defendAllies());
-            yaml.set(p + "allegiance.retaliate", r.retaliate());
-            yaml.set(p + "allegiance.attack-owner-target", r.attackOwnerTarget());
-            yaml.set(p + "allegiance.friendly-fire", r.friendlyFireProtect());
-            yaml.set(p + "behavior.profile", r.profile().name());
-            yaml.set(p + "behavior.ai-enabled", r.aiEnabled());
-            yaml.set(p + "behavior.anchored", r.anchored());
-            yaml.set(p + "behavior.hard-anchor", r.hardAnchor());
-            yaml.set(p + "behavior.world", r.anchorWorld());
-            yaml.set(p + "behavior.x", r.anchorX());
-            yaml.set(p + "behavior.y", r.anchorY());
-            yaml.set(p + "behavior.z", r.anchorZ());
-            yaml.set(p + "behavior.yaw", r.anchorYaw());
-            yaml.set(p + "behavior.pitch", r.anchorPitch());
+            // The codec owns the field list (now including type filters and
+            // pursuit/clear flags); nested maps are flattened to dotted paths.
+            writePlain(yaml, "entities." + r.entityUuid(), ManagedCodec.encode(r));
         }
         try {
             yaml.save(file);
         } catch (IOException e) {
             plugin.getLogger().log(Level.WARNING, "Could not save managed.yml", e);
+        }
+    }
+
+    /** ConfigurationSection → nested plain maps for the pure codec. */
+    private static java.util.Map<String, Object> toPlainMap(ConfigurationSection section) {
+        java.util.Map<String, Object> out = new java.util.LinkedHashMap<>();
+        for (String key : section.getKeys(false)) {
+            if (section.isConfigurationSection(key)) {
+                ConfigurationSection sub = section.getConfigurationSection(key);
+                out.put(key, sub == null ? null : toPlainMap(sub));
+            } else {
+                out.put(key, section.get(key));
+            }
+        }
+        return out;
+    }
+
+    /** Nested plain maps → dotted YAML paths. */
+    @SuppressWarnings("unchecked")
+    private static void writePlain(YamlConfiguration yaml, String base,
+            java.util.Map<String, Object> map) {
+        for (java.util.Map.Entry<String, Object> e : map.entrySet()) {
+            Object v = e.getValue();
+            if (v instanceof java.util.Map<?, ?> sub) {
+                java.util.Map<String, Object> m = new java.util.LinkedHashMap<>();
+                for (java.util.Map.Entry<?, ?> se : sub.entrySet()) {
+                    m.put(String.valueOf(se.getKey()), se.getValue());
+                }
+                writePlain(yaml, base + "." + e.getKey(), m);
+            } else {
+                yaml.set(base + "." + e.getKey(), v);
+            }
         }
     }
 

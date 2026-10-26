@@ -223,9 +223,15 @@ public class AllegianceService implements Listener {
     }
 
     /** Owner and trusted allies are never valid targets; anyone else must pass
-     * the type filters. Retaliation counts as an explicit-enemy signal. */
+     * the type filters. Retaliation counts as an explicit-enemy signal.
+     * Cross-world targets are refused: the mob could never path to them,
+     * and a cross-dimension target assignment is meaningless aggro. */
     private boolean engageable(Mob mob, LivingEntity target, ManagedRecord record) {
         if (!target.isValid() || target.isDead() || target.equals(mob)) {
+            return false;
+        }
+        if (target.getWorld() == null || mob.getWorld() == null
+                || !target.getWorld().equals(mob.getWorld())) {
             return false;
         }
         UUID tid = target.getUniqueId();
@@ -302,13 +308,28 @@ public class AllegianceService implements Listener {
         }
     }
 
-    /** A dead entity never returns under the same UUID, so its managed
-     * record is permanently useless: drop it instead of reconciling a ghost
-     * forever. Chunk unloads do NOT fire this event, so guards that unload
-     * keep their configuration and reconcile when available again. */
+    /** Cleanup on death. A dead mob never returns under the same UUID, so its
+     * managed record is permanently useless: drop it instead of reconciling
+     * a ghost forever. Chunk unloads do NOT fire this event, so guards that
+     * unload keep their configuration and reconcile when available again.
+     * Players respawn under the SAME UUID, so player records are kept —
+     * only genuinely one-way entity UUIDs are pruned, including from every
+     * other record's trusted/enemy lists and owner slots that referenced
+     * the dead entity. */
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void onDeath(org.bukkit.event.entity.EntityDeathEvent event) {
-        managed.remove(event.getEntity().getUniqueId());
+        UUID dead = event.getEntity().getUniqueId();
+        if (event.getEntity() instanceof Player) {
+            return; // same UUID on respawn: keep the player's record
+        }
+        managed.remove(dead);
+        for (ManagedRecord r : managed.values()) {
+            r.trusted().remove(dead);
+            r.enemies().remove(dead);
+            if (dead.equals(r.owner())) {
+                r.owner(null);
+            }
+        }
     }
 
     /** Pure anchor-distance decisions, extracted for headless tests.

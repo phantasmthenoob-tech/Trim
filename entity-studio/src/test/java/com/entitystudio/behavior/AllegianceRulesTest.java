@@ -61,6 +61,29 @@ class AllegianceRulesTest {
     }
 
     @Test
+    void conflictingRulesResolveDeterministically() {
+        // Trusted beats explicit enemy; owner beats everything.
+        assertEquals(IGNORE, AllegianceRules.evaluate(
+                ctx(true, true, true, false, "ZOMBIE", Set.of(), Set.of())));
+        assertEquals(IGNORE, AllegianceRules.evaluate(
+                ctx(false, true, true, false, "ZOMBIE", Set.of(), Set.of())));
+        // Excluded type beats explicit enemy, even inside the allow-list.
+        assertEquals(IGNORE, AllegianceRules.evaluate(
+                ctx(false, false, true, false, "ZOMBIE", Set.of("ZOMBIE"), Set.of("ZOMBIE"))));
+        // Type matching is case-insensitive; null type matches nothing
+        // in a non-empty allow-list.
+        assertEquals(ATTACK, AllegianceRules.evaluate(
+                ctx(false, false, true, false, "zombie", Set.of("ZOMBIE"), Set.of())));
+        var nullType = new AllegianceRules.TargetContext(true, false, false, true,
+                false, null, Set.of("ZOMBIE"), Set.of());
+        assertEquals(IGNORE, AllegianceRules.evaluate(nullType));
+        // No enemy signal, no filters: bystanders are always ignored, even
+        // when valid — guards never freelance without a rule.
+        assertEquals(IGNORE, AllegianceRules.evaluate(
+                ctx(false, false, false, false, "ZOMBIE", Set.of(), Set.of())));
+    }
+
+    @Test
     void defendRulesExcludeTrustedAndProtected() {
         UUID attacker = UUID.randomUUID();
         UUID trusted = UUID.randomUUID();
