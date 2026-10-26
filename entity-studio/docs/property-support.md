@@ -41,9 +41,11 @@ from the data editor — never faked.
 
 ## Advanced data browser
 
-v0.1.0 exposes capabilities + property coverage instead of a raw NBT tree:
+The dashboard's **Advanced data** button opens a strictly read-only
+inspector: `PersistentDataContainer` entries (scalar + primitive-array
+types), a few derived facts (class, EID, UUID, ticks lived, velocity,
+passengers, vehicle, portal cooldown), search filter, and paging. Clicking a
+row prints its full value to chat. There is deliberately no write path —
 Paper's public API is not a writable NBT interface, and a partial-snapshot
-rewrite could erase unknown fields. A read-only inspector over the
-`PersistentDataContainer` is the planned next step behind
-`settings.advanced-data.allow-internal-access`; arbitrary NBT writes stay out
-until they can be version-gated and backup-safe.
+rewrite could erase unknown fields. Arbitrary NBT writes stay out until
+they can be version-gated and backup-safe (`settings.advanced-data.*`).

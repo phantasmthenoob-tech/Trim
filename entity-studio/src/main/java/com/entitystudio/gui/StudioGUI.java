@@ -38,8 +38,12 @@ import org.bukkit.inventory.meta.ItemMeta;
 
 import java.util.ArrayList;
 import java.util.EnumSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import org.bukkit.NamespacedKey;
+import org.bukkit.persistence.PersistentDataContainer;
+import org.bukkit.persistence.PersistentDataType;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
@@ -53,13 +57,14 @@ public class StudioGUI implements Listener {
     public enum Page {
         DASHBOARD, PROPERTIES, EQUIPMENT, ATTRIBUTES, EFFECTS, BEHAVIOR,
         TRADES, ITEM, HISTORY, SNAPSHOTS, PRESETS, CONFIRM, PLAYER_INV, CONTAINER,
+        ADVANCED,
     }
 
     /** Chat-input kinds for typed value entry. */
     private enum InputKind {
         PROP_VALUE, SEARCH, ITEM_NAME, ITEM_LORE, ITEM_AMOUNT, ITEM_DAMAGE,
         ITEM_ENCHANT, ALLY_OWNER, TRUST_ADD, TRUST_DEL, ENEMY_ADD, ENEMY_DEL,
-        PRESET_SAVE, SNAP_SAVE, EFFECT_ADD, ATTR_VALUE, TELEPORT, NAME_SET,
+        PRESET_SAVE, SNAP_SAVE, EFFECT_ADD, ATTR_VALUE, TELEPORT, NAME_SET, DATA_SEARCH,
     }
 
     private record PendingInput(InputKind kind, UUID entityUuid, String data) {
@@ -187,8 +192,11 @@ public class StudioGUI implements Listener {
                 "<gray>AI, profiles, anchors, allegiance");
         col = dashButton(inv, col, caps.contains(Capability.MERCHANT_OFFERS), "TRADES",
                 Material.EMERALD, "<green><bold>Trades", "<gray>Offers, profession, level");
+        col = dashButton(inv, col, caps.contains(Capability.ADVANCED_DATA), "ADVANCED",
+                Material.COMMAND_BLOCK, "<aqua><bold>Advanced data",
+                "<gray>Read-only PDC + data view");
         for (String warn : warnings(entity, caps)) {
-            if (col > 16) {
+            if (col > 25) {
                 break;
             }
             inv.setItem(col++, named(Material.REDSTONE_TORCH, "<red><bold>Warning",
@@ -988,6 +996,169 @@ public class StudioGUI implements Listener {
 
     // ---------------------------------------------------------------- history
 
+    // --------------------------------------------------- advanced data (read-only)
+
+    /** Read-only inspector: PDC entries, Bukkit serialization snapshot, and a
+     * few derived facts. Getters only — this page has no write path, and the
+     * raw serialize() map is rendered, never written back (writing a partial
+     * snapshot could erase unknown fields). */
+    public void openAdvanced(Player player, Entity entity, String filter, int page) {
+        if (!plugin.getConfig().getBoolean("settings.advanced-data.enabled", true)) {
+            plugin.send(player, "<gray>Advanced data is disabled in config.");
+            return;
+        }
+        if (!plugin.permitted(player, StudioPermissions.DATA_VIEW)) {
+            plugin.send(player, plugin.msg("no-permission"));
+            return;
+        }
+        plugin.sessions().setPage(player.getUniqueId(), "advanced");
+        List<DataRows.Row> shown = filteredAdvancedRows(entity, filter);
+        int pages = ContainerPages.pageCount(shown.size());
+        page = ContainerPages.clampPage(page, shown.size());
+        GuiHolder holder = new GuiHolder(Page.ADVANCED, entity.getUniqueId(), filter, page);
+        String f = filter == null ? "" : filter;
+        Inventory inv = Bukkit.createInventory(holder, 54,
+                plugin.mm().deserialize("<dark_gray>Advanced data (read-only)"
+                        + (f.isBlank() ? "" : " <gray>[" + escape(trunc(f, 12)) + "]")
+                        + (pages > 1 ? " <gray>(p. " + (page + 1) + "/" + pages + ")" : "")));
+        holder.inv = inv;
+        int start = ContainerPages.startIndex(page, shown.size());
+        for (int i = 0; i < ContainerPages.PAGE_CONTENT && start + i < shown.size(); i++) {
+            DataRows.Row r = shown.get(start + i);
+            inv.setItem(i, named(Material.PAPER, "<white>" + escape(trunc(r.path(), 40)),
+                    "<gray>" + escape(trunc(r.value(), 60)),
+                    "<dark_gray>Click: full value in chat"));
+        }
+        inv.setItem(45, navBack());
+        if (ContainerPages.hasPrev(page, shown.size())) {
+            inv.setItem(48, named(Material.ARROW, "<yellow>Previous page",
+                    "<gray>Page " + page + " of " + pages));
+        }
+        inv.setItem(49, named(Material.BOOK, "<aqua>Filter",
+                f.isBlank() ? "<gray>No filter" : "<gray>Filter: <white>" + escape(trunc(f, 24)),
+                "<yellow>Click to type a filter"));
+        if (ContainerPages.hasNext(page, shown.size())) {
+            inv.setItem(50, named(Material.ARROW, "<yellow>Next page",
+                    "<gray>Page " + (page + 2) + " of " + pages));
+        }
+        for (int i = 0; i < 54; i++) {
+            if (inv.getItem(i) == null) {
+                inv.setItem(i, filler());
+            }
+        }
+        player.openInventory(inv);
+    }
+
+    private List<DataRows.Row> filteredAdvancedRows(Entity entity, String filter) {
+        String f = filter == null ? "" : filter.toLowerCase();
+        List<DataRows.Row> out = new ArrayList<>();
+        for (DataRows.Row r : collectAdvancedRows(entity)) {
+            if (f.isBlank() || r.path().toLowerCase().contains(f)
+                    || r.value().toLowerCase().contains(f)) {
+                out.add(r);
+            }
+        }
+        return out;
+    }
+
+    private static List<DataRows.Row> collectAdvancedRows(Entity entity) {
+        Map<String, Object> all = new LinkedHashMap<>();
+        Map<String, Object> pdc = new LinkedHashMap<>();
+        try {
+            PersistentDataContainer c = entity.getPersistentDataContainer();
+            for (NamespacedKey key : c.getKeys()) {
+                pdc.put(key.getNamespace() + ":" + key.getKey(), readPdc(c, key));
+            }
+        } catch (Exception e) {
+            pdc.put("<error>", String.valueOf(e));
+        }
+        all.put("pdc", pdc);
+        // NOTE: no raw-NBT or serialize-and-rewrite path here on purpose.
+        // Paper's public API has no safe universal readable snapshot, so the
+        // browser covers PDC + supported getters only (see docs/property-support.md).
+        Map<String, Object> info = new LinkedHashMap<>();
+        info.put("class", entity.getClass().getName());
+        info.put("entity-id", entity.getEntityId());
+        info.put("uuid", entity.getUniqueId().toString());
+        info.put("ticks-lived", entity.getTicksLived());
+        info.put("velocity", String.valueOf(entity.getVelocity()));
+        info.put("passengers", entity.getPassengers().size());
+        info.put("vehicle", entity.getVehicle() == null ? "none"
+                : entity.getVehicle().getType().name().toLowerCase());
+        info.put("portal-cooldown", entity.getPortalCooldown());
+        all.put("info", info);
+        return DataRows.flatten(all);
+    }
+
+    private static Object readPdc(PersistentDataContainer c, NamespacedKey key) {
+        try {
+            if (c.has(key, PersistentDataType.STRING)) {
+                return c.get(key, PersistentDataType.STRING);
+            }
+            if (c.has(key, PersistentDataType.INTEGER)) {
+                return c.get(key, PersistentDataType.INTEGER);
+            }
+            if (c.has(key, PersistentDataType.LONG)) {
+                return c.get(key, PersistentDataType.LONG);
+            }
+            if (c.has(key, PersistentDataType.DOUBLE)) {
+                return c.get(key, PersistentDataType.DOUBLE);
+            }
+            if (c.has(key, PersistentDataType.FLOAT)) {
+                return c.get(key, PersistentDataType.FLOAT);
+            }
+            if (c.has(key, PersistentDataType.SHORT)) {
+                return c.get(key, PersistentDataType.SHORT);
+            }
+            if (c.has(key, PersistentDataType.BYTE)) {
+                return c.get(key, PersistentDataType.BYTE);
+            }
+            if (c.has(key, PersistentDataType.INTEGER_ARRAY)) {
+                return c.get(key, PersistentDataType.INTEGER_ARRAY);
+            }
+            if (c.has(key, PersistentDataType.LONG_ARRAY)) {
+                return c.get(key, PersistentDataType.LONG_ARRAY);
+            }
+            if (c.has(key, PersistentDataType.BYTE_ARRAY)) {
+                return c.get(key, PersistentDataType.BYTE_ARRAY);
+            }
+        } catch (Exception ignored) {
+            // fall through to unreadable
+        }
+        return "<unreadable type>";
+    }
+
+    private void clickAdvanced(Player player, Entity entity, GuiHolder holder, int slot) {
+        if (slot == 45) {
+            openDashboard(player, entity);
+            return;
+        }
+        List<DataRows.Row> shown = filteredAdvancedRows(entity, holder.data);
+        if (slot == 48 && ContainerPages.hasPrev(holder.pageNum, shown.size())) {
+            openAdvanced(player, entity, holder.data, holder.pageNum - 1);
+            return;
+        }
+        if (slot == 50 && ContainerPages.hasNext(holder.pageNum, shown.size())) {
+            openAdvanced(player, entity, holder.data, holder.pageNum + 1);
+            return;
+        }
+        if (slot == 49) {
+            askChat(player, entity.getUniqueId(), InputKind.DATA_SEARCH, null,
+                    "<yellow>Type a filter (blank clears, cancel aborts):");
+            return;
+        }
+        if (slot < 0 || slot >= ContainerPages.PAGE_CONTENT) {
+            return;
+        }
+        int idx = ContainerPages.startIndex(holder.pageNum, shown.size()) + slot;
+        if (idx < 0 || idx >= shown.size()) {
+            return;
+        }
+        DataRows.Row r = shown.get(idx);
+        plugin.send(player, "<aqua>" + escape(r.path()) + "<gray> = <white>"
+                + escape(trunc(r.value(), 400)));
+    }
+
     public void openHistory(Player player, Entity entity) {
         if (!plugin.permitted(player, StudioPermissions.UNDO)) {
             plugin.send(player, plugin.msg("no-permission"));
@@ -1151,6 +1322,7 @@ public class StudioGUI implements Listener {
         boolean shift = event.isShiftClick();
         switch (holder.page) {
             case DASHBOARD -> clickDashboard(player, entity, slot, right, shift);
+            case ADVANCED -> clickAdvanced(player, entity, holder, slot);
             case PROPERTIES -> clickProperties(player, entity, holder, slot, right);
             case EQUIPMENT -> clickEquipment(player, entity, slot, right, shift,
                     event.getCurrentItem());
@@ -1188,6 +1360,7 @@ public class StudioGUI implements Listener {
                     + "<gray> · UUID <yellow>" + entity.getUniqueId()
                     + "<gray> · At <white>" + loc(entity));
             case 10 -> openEquipment(player, entity);
+            case 17 -> openAdvanced(player, entity, null, 0);
             case 11 -> openPlayerInv(player, entity);
             case 12 -> openProperties(player, entity, null);
             case 13 -> openAttributes(player, entity);
@@ -2371,6 +2544,17 @@ public class StudioGUI implements Listener {
                     plugin.send(player, "<red>" + err);
                 }
                 openProperties(player, entity, null);
+            }
+            case DATA_SEARCH -> {
+                if (entity == null) {
+                    return;
+                }
+                if (text.length() > 40) {
+                    plugin.send(player, "<red>Filter must be at most 40 characters.");
+                    pending.put(player.getUniqueId(), req);
+                    return;
+                }
+                openAdvanced(player, entity, text.isBlank() ? null : text, 0);
             }
             case NAME_SET -> {
                 if (entity == null) {

@@ -35,6 +35,8 @@ real entity change. No `/data` memorization.
   deterministically (see `docs/architecture.md`).
 - **Trades** — view/reset/remove offers, add offer from held item, profession
   and level via properties.
+- **Advanced data (read-only)** — PDC entries, derived facts, filter +
+  paging; click a row for the full value in chat. No write path by design.
 - **History** — every edit records before/after; undo for reversible ops;
   honest "cannot be undone" for the rest.
 - **Snapshots & presets** — save, restore, preview exact field changes, apply
