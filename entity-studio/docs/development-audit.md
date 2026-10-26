@@ -107,6 +107,50 @@ click; concurrent opens fail closed via session validation.
 targeting mediation under vanilla AI pressure, cross-restart anchor/stash
 behavior, two-admin container races. No headless-safe fix attempted.
 
+## 9. Prompt-4 GUI consistency review (2026-10-26) — navigation + safety pass
+
+Scope: all 14 `StudioGUI` pages (dashboard, properties, equipment,
+attributes, effects, behavior, trades, item, history, snapshots, presets +
+section picker, confirm, player-inv, container mirror, advanced).
+
+**Navigation (done):** every 54-page now shares Back (45) · Help (47) ·
+Prev (48) · page action (49) · Next (50) · Refresh (52) · Close (53),
+with Refresh/Close/Help handled centrally in `onClick`. Pages where 53 is
+a guarded destructive action (dashboard remove, effects clear, trades
+remove-all, behavior teleport row) keep 53 destructive and expose Close on
+44/46/51 instead. 27-pages use Back (22) + Close (26) + Refresh (7/8/25).
+History/snapshots/presets/attributes/effects/trades gained real
+pagination (previously first-45-only with silent truncation); properties
+now offsets by page instead of indexing slot directly.
+
+**Help + current values:** Help lore on every page (gold = editable,
+gray/red semantics; amount clamps; undo is newest-first) plus a chat copy
+on Help click; dashboard shows EID/session/size, properties show live
+value + type + risk + scope + support badge, attributes show
+base/final/default/modifiers, effects show duration/amplifier.
+
+**Destructive routing (done):** clear-effects, remove-offer and
+remove-all-offers now open the token confirm GUI (fresh permission +
+`resolve()` + `checkTargetAccess` at fire time) instead of bare
+shift-clicks; withdraw-all previews the count then confirms; the
+remove-entity no-confirm-config dead end is fixed (shift-click still
+gates, then a lightweight confirm executes so checks still run).
+
+**Click hardening (done):** `onClick` cancels first, then ignores
+NUMBER_KEY / SWAP_OFFHAND / DOUBLE_CLICK / DROP / CONTROL_DROP /
+border clicks via `GuiNav.isUnsafeClick` (new `GuiNavTest`, 4 tests);
+drags already cancelled; container mirror keeps its top/bottom split but
+gains Back/Refresh/Close/Help inside the mirror and a confirm on
+withdraw-all. Stale-menu guard is `resolve()` (session-UUID == holder-UUID
++ full revalidation) on every mutation path including confirm fire and
+60s chat input; `GuiNav.sameEntity` unit-tests the null-safe comparison.
+
+**Requires a live server (not verifiable headless):** in-game rendering
+of the new bottom rows, shift/number/offhand/drag behavior with a real
+client, double-inventory concurrency, and feel of paginated lists. Headless
+proves routing + math only — `gradle build` green, 78/78 tests pass
+(74 existing + 4 GuiNav).
+
 ## 8. Prioritized blockers for next stages
 
 1. **P1 — live-server verification.** Headless green is not proof on a

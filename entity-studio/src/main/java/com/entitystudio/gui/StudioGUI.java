@@ -213,11 +213,16 @@ public class StudioGUI implements Listener {
                 "<yellow>Click to type a new name", "<gray>Right-click to clear"));
         inv.setItem(48, named(Material.CLOCK, "<aqua>History & undo",
                 "<gray>" + plugin.history().size(player.getUniqueId()) + " recorded edits",
+                "<gray>Current session: " + shortUuid(entity.getUniqueId()),
                 "<yellow>Click to review"));
         inv.setItem(49, named(Material.ENDER_CHEST, "<light_purple>Snapshots",
                 "<yellow>Click to manage"));
         inv.setItem(50, named(Material.ENDER_EYE, "<light_purple>Presets",
                 "<yellow>Click to manage"));
+        inv.setItem(51, helpItem("Shift-right-click selects. Every edit re-checks",
+                "permissions + the live entity first."));
+        inv.setItem(52, navRefresh());
+        inv.setItem(44, navClose());
         inv.setItem(53, named(Material.BARRIER, "<red>Remove entity",
                 "<gray>Deletes this entity (needs confirm).",
                 "<red>Cannot be undone!", "<yellow>Shift-click to confirm"));
@@ -298,6 +303,10 @@ public class StudioGUI implements Listener {
     // -------------------------------------------------------------- properties
 
     public void openProperties(Player player, Entity entity, String filter) {
+        openProperties(player, entity, filter, 0);
+    }
+
+    public void openProperties(Player player, Entity entity, String filter, int page) {
         if (!plugin.permitted(player, StudioPermissions.DATA_VIEW)) {
             plugin.send(player, plugin.msg("no-permission"));
             return;
@@ -306,22 +315,35 @@ public class StudioGUI implements Listener {
         List<EntityProperty<?>> all = filter == null || filter.isBlank()
                 ? plugin.properties().listFor(entity)
                 : plugin.properties().searchFor(entity, filter);
-        int pages = Math.max(1, (int) Math.ceil(all.size() / 45.0));
-        GuiHolder holder = new GuiHolder(Page.PROPERTIES, entity.getUniqueId(), filter, 0);
+        int pages = Math.max(1, (int) Math.ceil(Math.max(1, all.size()) / 45.0));
+        page = ContainerPages.clampPage(page, Math.max(1, all.size()));
+        GuiHolder holder = new GuiHolder(Page.PROPERTIES, entity.getUniqueId(), filter, page);
         Inventory inv = Bukkit.createInventory(holder, 54,
                 plugin.mm().deserialize("<dark_gray>Properties"
-                        + (filter == null ? "" : " <gray>" + escape(filter))));
+                        + (filter == null || filter.isBlank() ? "" : " <gray>" + escape(trunc(filter, 12)))
+                        + (pages > 1 ? " <gray>(p. " + (page + 1) + "/" + pages + ")" : "")));
         holder.inv = inv;
-        for (int i = 0; i < Math.min(45, all.size()); i++) {
-            inv.setItem(i, propertyItem(entity, all.get(i)));
+        int start = ContainerPages.startIndex(page, Math.max(1, all.size()));
+        for (int i = 0; i < 45 && start + i < all.size(); i++) {
+            inv.setItem(i, propertyItem(entity, all.get(start + i)));
         }
         for (int i = 45; i < 54; i++) {
             inv.setItem(i, filler());
         }
-        inv.setItem(45, navBack());
-        inv.setItem(49, named(Material.COMPASS,
-                filter == null ? "<gray>Search" : "<aqua>Filter: " + escape(filter),
-                "<yellow>Click to type a filter", filter == null ? "" : "<gray>Right-click to clear"));
+        inv.setItem(GuiNav.BACK_54, navBack());
+        inv.setItem(GuiNav.HELP_54, helpItem("Gold = editable now.",
+                "Gray = read-only, red = unsupported.", "Click a gold row to type a value."));
+        if (ContainerPages.hasPrev(page, Math.max(1, all.size()))) {
+            inv.setItem(GuiNav.PREV_54, prevButton(page, pages));
+        }
+        inv.setItem(GuiNav.ACTION_54, named(Material.COMPASS,
+                filter == null || filter.isBlank() ? "<gray>Search" : "<aqua>Filter: " + escape(trunc(filter, 16)),
+                "<yellow>Click to type a filter", filter == null || filter.isBlank() ? "" : "<gray>Right-click to clear"));
+        if (ContainerPages.hasNext(page, Math.max(1, all.size()))) {
+            inv.setItem(GuiNav.NEXT_54, nextButton(page, pages));
+        }
+        inv.setItem(GuiNav.REFRESH_54, navRefresh());
+        inv.setItem(GuiNav.CLOSE_54, navClose());
         player.openInventory(inv);
     }
 
@@ -414,8 +436,12 @@ public class StudioGUI implements Listener {
         }
         boolean mob = entity instanceof Mob;
         inv.setItem(0, named(Material.ANVIL, "<yellow>Drop chances" + (mob ? "" : " (mobs only)"),
-                mob ? "<gray>Click a slot below to cycle +25%" : "<gray>Loot drop chances apply to mobs"));
+                mob ? "<gray>Click a label slot below to cycle +25%" : "<gray>Loot drop chances apply to mobs"));
+        inv.setItem(1, helpItem("Left-click a shown item: swap with cursor.",
+                "Right-click: open the item editor."));
+        inv.setItem(7, navRefresh());
         inv.setItem(8, navBack());
+        inv.setItem(25, navClose());
         inv.setItem(26, named(Material.BARRIER, "<red>Clear all equipment",
                 "<red>Destructive — needs confirm", "<yellow>Shift-click to confirm"));
         player.openInventory(inv);
@@ -429,6 +455,10 @@ public class StudioGUI implements Listener {
     // -------------------------------------------------------------- attributes
 
     public void openAttributes(Player player, Entity entity) {
+        openAttributes(player, entity, 0);
+    }
+
+    public void openAttributes(Player player, Entity entity, int page) {
         if (!(entity instanceof Attributable attr)) {
             plugin.send(player, "<red>This entity has no attributes.");
             return;
@@ -445,12 +475,16 @@ public class StudioGUI implements Listener {
                 list.add(inst);
             }
         }
-        GuiHolder holder = new GuiHolder(Page.ATTRIBUTES, entity.getUniqueId(), null, 0);
+        int pages = ContainerPages.pageCount(Math.max(1, list.size()));
+        page = ContainerPages.clampPage(page, Math.max(1, list.size()));
+        GuiHolder holder = new GuiHolder(Page.ATTRIBUTES, entity.getUniqueId(), null, page);
         Inventory inv = Bukkit.createInventory(holder, 54,
-                plugin.mm().deserialize("<dark_gray>Attributes"));
+                plugin.mm().deserialize("<dark_gray>Attributes"
+                        + (pages > 1 ? " <gray>(p. " + (page + 1) + "/" + pages + ")" : "")));
         holder.inv = inv;
-        for (int i = 0; i < Math.min(45, list.size()); i++) {
-            AttributeInstance inst = list.get(i);
+        int start = ContainerPages.startIndex(page, Math.max(1, list.size()));
+        for (int i = 0; i < 45 && start + i < list.size(); i++) {
+            AttributeInstance inst = list.get(start + i);
             String key = inst.getAttribute().getKey().getKey();
             inv.setItem(i, named(Material.GOLD_NUGGET, "<white>" + key,
                     "<gray>Base: <aqua>" + round3(inst.getBaseValue()),
@@ -463,13 +497,27 @@ public class StudioGUI implements Listener {
         for (int i = 45; i < 54; i++) {
             inv.setItem(i, filler());
         }
-        inv.setItem(45, navBack());
+        inv.setItem(GuiNav.BACK_54, navBack());
+        inv.setItem(GuiNav.HELP_54, helpItem("Click a row to type a new base value.",
+                "Right-click resets to the vanilla default."));
+        if (ContainerPages.hasPrev(page, Math.max(1, list.size()))) {
+            inv.setItem(GuiNav.PREV_54, prevButton(page, pages));
+        }
+        if (ContainerPages.hasNext(page, Math.max(1, list.size()))) {
+            inv.setItem(GuiNav.NEXT_54, nextButton(page, pages));
+        }
+        inv.setItem(GuiNav.REFRESH_54, navRefresh());
+        inv.setItem(GuiNav.CLOSE_54, navClose());
         player.openInventory(inv);
     }
 
     // ---------------------------------------------------------------- effects
 
     public void openEffects(Player player, Entity entity) {
+        openEffects(player, entity, 0);
+    }
+
+    public void openEffects(Player player, Entity entity, int page) {
         if (!(entity instanceof LivingEntity living)) {
             plugin.send(player, "<red>Only living entities have effects.");
             return;
@@ -479,30 +527,48 @@ public class StudioGUI implements Listener {
             return;
         }
         plugin.sessions().setPage(player.getUniqueId(), "effects");
-        GuiHolder holder = new GuiHolder(Page.EFFECTS, entity.getUniqueId(), null, 0);
+        List<org.bukkit.potion.PotionEffect> active = new ArrayList<>(living.getActivePotionEffects());
+        // Slot 44 is the Add button, so 44 content rows per page.
+        int perPage = 44;
+        int pages = Math.max(1, (Math.max(1, active.size() + 1) + perPage - 1) / perPage);
+        page = Math.max(0, Math.min(page, pages - 1));
+        GuiHolder holder = new GuiHolder(Page.EFFECTS, entity.getUniqueId(), null, page);
         Inventory inv = Bukkit.createInventory(holder, 54,
-                plugin.mm().deserialize("<dark_gray>Effects"));
+                plugin.mm().deserialize("<dark_gray>Effects (" + active.size() + ")"
+                        + (pages > 1 ? " <gray>(p. " + (page + 1) + "/" + pages + ")" : "")));
         holder.inv = inv;
+        int start = page * perPage;
         int i = 0;
-        for (var fx : living.getActivePotionEffects()) {
-            if (i >= 44) {
-                break;
-            }
+        for (int k = start; k < active.size() && i < perPage; k++, i++) {
+            var fx = active.get(k);
             String key = fx.getType().getKey().getKey();
-            inv.setItem(i++, named(Material.POTION, "<aqua>" + key,
+            inv.setItem(i, named(Material.POTION, "<aqua>" + key,
                     "<gray>Duration: <white>" + fx.getDuration() + " ticks",
                     "<gray>Amplifier: <white>" + fx.getAmplifier(),
-                    "<red>Click to remove"));
+                    "<gray>Current value shown above",
+                    "<red>Click to remove (needs confirm)"));
         }
-        inv.setItem(44, named(Material.BREWING_STAND, "<green>Add effect",
-                "<gray>Format: TYPE:DURATION_TICKS:AMPLIFIER",
-                "<gray>e.g. SPEED:1200:1", "<yellow>Click to type"));
+        if (start + perPage >= active.size()) {
+            int addSlot = Math.min(44, active.size() - start);
+            inv.setItem(addSlot, named(Material.BREWING_STAND, "<green>Add effect",
+                    "<gray>Format: TYPE:DURATION_TICKS:AMPLIFIER",
+                    "<gray>e.g. SPEED:1200:1", "<yellow>Click to type"));
+        }
         for (int j = 45; j < 54; j++) {
             inv.setItem(j, filler());
         }
-        inv.setItem(45, navBack());
+        inv.setItem(GuiNav.BACK_54, navBack());
+        inv.setItem(GuiNav.HELP_54, helpItem("Add uses TYPE:DURATION:AMPLIFIER.",
+                "Removing or clearing needs the confirm screen."));
+        if (page > 0) {
+            inv.setItem(GuiNav.PREV_54, prevButton(page, pages));
+        }
+        if (page < pages - 1) {
+            inv.setItem(GuiNav.NEXT_54, nextButton(page, pages));
+        }
+        inv.setItem(GuiNav.REFRESH_54, navRefresh());
         inv.setItem(53, named(Material.BARRIER, "<red>Clear all effects",
-                "<red>Needs confirm", "<yellow>Shift-click to confirm"));
+                "<red>Destructive — needs confirm", "<yellow>Shift-click to confirm"));
         player.openInventory(inv);
     }
 
@@ -520,6 +586,9 @@ public class StudioGUI implements Listener {
                     plugin.mm().deserialize("<dark_gray>Player inventory"));
             holder.inv = inv;
             fill(inv, 27);
+            inv.setItem(0, helpItem("Opens the LIVE player inventory.",
+                    "Offline editing is not supported."));
+            inv.setItem(8, navRefresh());
             inv.setItem(11, named(Material.CHEST, "<aqua>Open inventory (live)",
                     "<gray>Edits apply to the real inventory", "<green>Click to open"));
             inv.setItem(13, named(Material.ENDER_CHEST, "<light_purple>Open ender chest (live)",
@@ -529,6 +598,7 @@ public class StudioGUI implements Listener {
                     "<gray>persistence strategy — not supported",
                     "<gray>in this version."));
             inv.setItem(22, navBack());
+            inv.setItem(26, navClose());
             player.openInventory(inv);
             return;
         }
@@ -600,7 +670,7 @@ public class StudioGUI implements Listener {
             ItemStack s = real.getItem(realIdx);
             inv.setItem(i, isAir(s) ? null : s.clone());
         }
-        inv.setItem(45, navBack());
+        inv.setItem(GuiNav.BACK_54, navBack());
         inv.setItem(46, named(Material.BOOK, stash ? "<aqua>Entity stash"
                 : "<aqua>How this works",
                 stash ? "<gray>Plugin storage for entities"
@@ -610,16 +680,18 @@ public class StudioGUI implements Listener {
                 stash ? "<gray>Persists across restarts"
                         : "<gray>Edits apply to the live entity"));
         if (ContainerPages.hasPrev(page, real.getSize())) {
-            inv.setItem(48, named(Material.ARROW, "<yellow>Previous page",
-                    "<gray>Page " + page + " of " + pages));
+            inv.setItem(GuiNav.PREV_54, prevButton(page, pages));
         }
-        inv.setItem(49, named(Material.HOPPER, "<gold>Withdraw all",
+        inv.setItem(GuiNav.ACTION_54, named(Material.HOPPER, "<gold>Withdraw all",
                 "<gray>Moves everything into your inventory",
-                "<yellow>Click to withdraw"));
+                "<gray>Destructive — needs confirm", "<yellow>Click to confirm"));
         if (ContainerPages.hasNext(page, real.getSize())) {
-            inv.setItem(50, named(Material.ARROW, "<yellow>Next page",
-                    "<gray>Page " + (page + 2) + " of " + pages));
+            inv.setItem(GuiNav.NEXT_54, nextButton(page, pages));
         }
+        inv.setItem(GuiNav.HELP_54, helpItem(stash ? "Plugin stash for entities" : "Click an item: withdraw to you.",
+                stash ? "with no inventory of their own." : "Shift-click your items: deposit."));
+        inv.setItem(GuiNav.REFRESH_54, navRefresh());
+        inv.setItem(GuiNav.CLOSE_54, navClose());
         for (int i = 0; i < 54; i++) {
             if (inv.getItem(i) == null) {
                 inv.setItem(i, filler());
@@ -646,6 +718,27 @@ public class StudioGUI implements Listener {
             return;
         }
         int page = ContainerPages.parsePage(holder.data);
+        // Standard bar inside the mirror: Back / Refresh / Close / Help
+        // behave like every other page; only content + withdraw-all mutate.
+        if (event.getClickedInventory().equals(event.getView().getTopInventory())) {
+            int s = event.getSlot();
+            if (s == GuiNav.BACK_54) {
+                openDashboard(player, entity);
+                return;
+            }
+            if (s == GuiNav.REFRESH_54) {
+                openContainerMirror(player, entity, page);
+                return;
+            }
+            if (s == GuiNav.CLOSE_54 || s == GuiNav.HELP_54) {
+                if (s == GuiNav.CLOSE_54) {
+                    player.closeInventory();
+                } else {
+                    plugin.send(player, "<aqua>Click an item: withdraw · Shift-click yours: deposit.");
+                }
+                return;
+            }
+        }
         boolean top = event.getClickedInventory().equals(event.getView().getTopInventory());
         switch (event.getClick()) {
             case LEFT, RIGHT -> {
@@ -685,7 +778,21 @@ public class StudioGUI implements Listener {
             return;
         }
         if (slot == 49) {
-            containerWithdrawAll(player, entity, real, page);
+            List<ItemStack> preview = new ArrayList<>();
+            for (int i = 0; i < real.getSize(); i++) {
+                ItemStack s = real.getItem(i);
+                if (!isAir(s)) {
+                    preview.add(s.clone());
+                }
+            }
+            if (preview.isEmpty()) {
+                plugin.send(player, "<gray>Container is empty.");
+                return;
+            }
+            confirm(player, entity, "Withdraw all",
+                    "Move " + preview.size() + " stack(s) into your inventory? Recorded for undo.",
+                    StudioPermissions.INV_EDIT,
+                    (p, e) -> containerWithdrawAll(p, e, backingInventory(e), page));
             return;
         }
         if (slot < 0 || slot >= ContainerPages.PAGE_CONTENT) {
@@ -885,9 +992,13 @@ public class StudioGUI implements Listener {
                     pluginManaged(entity) ? "<aqua>Also plugin-managed"
                             : "<gray>Not plugin-managed — set owner above"));
         }
-        inv.setItem(45, navBack());
-        inv.setItem(49, named(Material.ENDER_PEARL, "<aqua>Teleport entity here",
+        inv.setItem(GuiNav.BACK_54, navBack());
+        inv.setItem(GuiNav.HELP_54, helpItem("Profiles: PASSIVE never attacks,",
+                "GUARD defends owner + trusted.", "Anchors: soft tolerates drift, hard holds spot."));
+        inv.setItem(GuiNav.ACTION_54, named(Material.ENDER_PEARL, "<aqua>Teleport entity here",
                 "<gray>Brings the entity to you", "<yellow>Click to teleport"));
+        inv.setItem(GuiNav.REFRESH_54, navRefresh());
+        inv.setItem(GuiNav.CLOSE_54, navClose());
         inv.setItem(53, named(Material.PAPER, "<gray>Precise teleport",
                 "<gray>Format: x y z [yaw pitch]", "<yellow>Click to type"));
         for (int i = 0; i < 54; i++) {
@@ -918,6 +1029,10 @@ public class StudioGUI implements Listener {
     // ------------------------------------------------------------------ trades
 
     public void openTrades(Player player, Entity entity) {
+        openTrades(player, entity, 0);
+    }
+
+    public void openTrades(Player player, Entity entity, int page) {
         if (!(entity instanceof org.bukkit.inventory.Merchant merchant)) {
             plugin.send(player, "<red>This entity is not a merchant.");
             return;
@@ -927,10 +1042,6 @@ public class StudioGUI implements Listener {
             return;
         }
         plugin.sessions().setPage(player.getUniqueId(), "trades");
-        GuiHolder holder = new GuiHolder(Page.TRADES, entity.getUniqueId(), null, 0);
-        Inventory inv = Bukkit.createInventory(holder, 54,
-                plugin.mm().deserialize("<dark_gray>Trades (" + merchant.getRecipeCount() + ")"));
-        holder.inv = inv;
         List<org.bukkit.inventory.MerchantRecipe> recipes;
         try {
             recipes = new ArrayList<>(merchant.getRecipes());
@@ -940,7 +1051,15 @@ public class StudioGUI implements Listener {
             plugin.send(player, "<red>Could not read offers.");
             return;
         }
-        for (int i = 0; i < Math.min(44, recipes.size()); i++) {
+        int pages = ContainerPages.pageCount(Math.max(1, recipes.size() + 1));
+        page = ContainerPages.clampPage(page, Math.max(1, recipes.size() + 1));
+        GuiHolder holder = new GuiHolder(Page.TRADES, entity.getUniqueId(), null, page);
+        Inventory inv = Bukkit.createInventory(holder, 54,
+                plugin.mm().deserialize("<dark_gray>Trades (" + merchant.getRecipeCount() + ")"
+                        + (pages > 1 ? " <gray>(p. " + (page + 1) + "/" + pages + ")" : "")));
+        holder.inv = inv;
+        int start = ContainerPages.startIndex(page, Math.max(1, recipes.size() + 1));
+        for (int i = 0; i < 44 && start + i < recipes.size(); i++) {
             var r = recipes.get(i);
             ItemStack show = r.getResult().clone();
             ItemMeta meta = show.getItemMeta();
@@ -952,18 +1071,31 @@ public class StudioGUI implements Listener {
             meta.lore(lore);
             show.setItemMeta(meta);
             inv.setItem(i, show);
-        }
-        inv.setItem(44, named(Material.EMERALD, "<green>New offer from hand",
-                "<gray>Result = held item, cost = 1 emerald",
-                "<gray>max 12 uses, 5 XP", "<yellow>Click with item in hand"));
+        }            if (start + 44 >= recipes.size()) {
+                inv.setItem(Math.min(44, recipes.size() - start), named(Material.EMERALD, "<green>New offer from hand",
+                        "<gray>Result = held item, cost = 1 emerald",
+                        "<gray>max 12 uses, 5 XP", "<yellow>Click with item in hand"));
+            }
         for (int i = 45; i < 54; i++) {
             inv.setItem(i, filler());
         }
-        inv.setItem(45, navBack());
+        inv.setItem(GuiNav.BACK_54, navBack());
+        inv.setItem(GuiNav.HELP_54, helpItem("Click an offer to restock (reset uses).",
+                "Shift-click removes one offer (confirm)."));
+        if (ContainerPages.hasPrev(page, Math.max(1, recipes.size() + 1))) {
+            inv.setItem(GuiNav.PREV_54, prevButton(page, pages));
+        }
+        if (ContainerPages.hasNext(page, Math.max(1, recipes.size() + 1))) {
+            inv.setItem(GuiNav.NEXT_54, nextButton(page, pages));
+        }
+        inv.setItem(GuiNav.REFRESH_54, navRefresh());
+        inv.setItem(GuiNav.CLOSE_54, navClose());
         inv.setItem(53, named(Material.BARRIER, "<red>Remove ALL offers",
                 "<red>Destructive — needs confirm", "<yellow>Shift-click to confirm"));
         if (entity instanceof org.bukkit.entity.Villager v) {
-            inv.setItem(49, named(Material.BOOK, "<aqua>Profession/level",
+            // Keep the action slot free for the standard bar: profession lives
+            // on the help-adjacent slot 46 instead of clobbering refresh.
+            inv.setItem(46, named(Material.BOOK, "<aqua>Profession/level",
                     "<gray>Edit in Properties (villager.*)", "<yellow>Click to open"));
         }
         player.openInventory(inv);
@@ -1010,7 +1142,11 @@ public class StudioGUI implements Listener {
                 "<gray>Format: name:level (e.g. sharpness:5)", "<yellow>Click to type"));
         inv.setItem(16, named(Material.MILK_BUCKET, "<white>Clear enchants",
                 "<yellow>Click to clear"));
+        inv.setItem(0, helpItem("Edits apply to the live equipment slot.",
+                "Amount clamps to the item max stack."));
+        inv.setItem(8, navRefresh());
         inv.setItem(22, navBack());
+        inv.setItem(26, navClose());
         player.openInventory(inv);
     }
 
@@ -1049,18 +1185,20 @@ public class StudioGUI implements Listener {
                     "<gray>" + escape(trunc(r.value(), 60)),
                     "<dark_gray>Click: full value in chat"));
         }
-        inv.setItem(45, navBack());
+        inv.setItem(GuiNav.BACK_54, navBack());
+        inv.setItem(GuiNav.HELP_54, helpItem("Read-only: PDC + supported facts.",
+                "No write path — click a row for full value."));
         if (ContainerPages.hasPrev(page, shown.size())) {
-            inv.setItem(48, named(Material.ARROW, "<yellow>Previous page",
-                    "<gray>Page " + page + " of " + pages));
+            inv.setItem(GuiNav.PREV_54, prevButton(page, pages));
         }
-        inv.setItem(49, named(Material.BOOK, "<aqua>Filter",
+        inv.setItem(GuiNav.ACTION_54, named(Material.BOOK, "<aqua>Filter",
                 f.isBlank() ? "<gray>No filter" : "<gray>Filter: <white>" + escape(trunc(f, 24)),
                 "<yellow>Click to type a filter"));
         if (ContainerPages.hasNext(page, shown.size())) {
-            inv.setItem(50, named(Material.ARROW, "<yellow>Next page",
-                    "<gray>Page " + (page + 2) + " of " + pages));
+            inv.setItem(GuiNav.NEXT_54, nextButton(page, pages));
         }
+        inv.setItem(GuiNav.REFRESH_54, navRefresh());
+        inv.setItem(GuiNav.CLOSE_54, navClose());
         for (int i = 0; i < 54; i++) {
             if (inv.getItem(i) == null) {
                 inv.setItem(i, filler());
@@ -1180,16 +1318,25 @@ public class StudioGUI implements Listener {
     }
 
     public void openHistory(Player player, Entity entity) {
+        openHistory(player, entity, 0);
+    }
+
+    public void openHistory(Player player, Entity entity, int page) {
         if (!plugin.permitted(player, StudioPermissions.UNDO)) {
             plugin.send(player, plugin.msg("no-permission"));
             return;
         }
         plugin.sessions().setPage(player.getUniqueId(), "history");
-        List<EditRecord> records = plugin.history().recent(player.getUniqueId(), 45);
+        List<EditRecord> all = plugin.history().recent(player.getUniqueId(), Integer.MAX_VALUE);
+        int pages = ContainerPages.pageCount(Math.max(1, all.size()));
+        page = ContainerPages.clampPage(page, Math.max(1, all.size()));
+        List<EditRecord> records = all.subList(ContainerPages.startIndex(page, Math.max(1, all.size())),
+                Math.min(all.size(), ContainerPages.startIndex(page, Math.max(1, all.size())) + ContainerPages.PAGE_CONTENT));
         GuiHolder holder = new GuiHolder(Page.HISTORY,
-                entity == null ? null : entity.getUniqueId(), null, 0);
+                entity == null ? null : entity.getUniqueId(), null, page);
         Inventory inv = Bukkit.createInventory(holder, 54,
-                plugin.mm().deserialize("<dark_gray>History (" + records.size() + ")"));
+                plugin.mm().deserialize("<dark_gray>History (" + all.size() + ")"
+                        + (pages > 1 ? " <gray>(p. " + (page + 1) + "/" + pages + ")" : "")));
         holder.inv = inv;
         for (int i = 0; i < records.size(); i++) {
             EditRecord r = records.get(i);
@@ -1199,7 +1346,7 @@ public class StudioGUI implements Listener {
             lore.add("<gray>Now: <aqua>" + escape(trunc(r.newValue(), 40)));
             lore.add("<gray>Risk: " + r.riskLevel().toLowerCase());
             if (r.reversible()) {
-                lore.add("<yellow>Click to undo");
+                lore.add("<yellow>Click to undo (newest first)");
             } else {
                 lore.add("<red>Cannot be undone");
             }
@@ -1209,62 +1356,104 @@ public class StudioGUI implements Listener {
         for (int i = 45; i < 54; i++) {
             inv.setItem(i, filler());
         }
-        inv.setItem(45, navBack());
-        inv.setItem(49, named(Material.LIME_DYE, "<green>Undo last",
+        if (entity != null) {
+            inv.setItem(GuiNav.BACK_54, navBack());
+        } else {
+            inv.setItem(GuiNav.BACK_54, navClose());
+        }
+        inv.setItem(GuiNav.HELP_54, helpItem("Newest edit first.",
+                "Undo runs in order — no skipping."));
+        if (ContainerPages.hasPrev(page, Math.max(1, all.size()))) {
+            inv.setItem(GuiNav.PREV_54, prevButton(page, pages));
+        }
+        inv.setItem(GuiNav.ACTION_54, named(Material.LIME_DYE, "<green>Undo last",
                 "<yellow>Click to undo the newest reversible edit"));
+        if (ContainerPages.hasNext(page, Math.max(1, all.size()))) {
+            inv.setItem(GuiNav.NEXT_54, nextButton(page, pages));
+        }
+        inv.setItem(GuiNav.REFRESH_54, navRefresh());
+        inv.setItem(GuiNav.CLOSE_54, navClose());
         player.openInventory(inv);
     }
 
     // ------------------------------------------------------- snapshots & presets
 
     public void openSnapshots(Player player, Entity entity) {
+        openSnapshots(player, entity, 0);
+    }
+
+    public void openSnapshots(Player player, Entity entity, int page) {
         if (!plugin.permitted(player, StudioPermissions.SNAPSHOT)) {
             plugin.send(player, plugin.msg("no-permission"));
             return;
         }
         plugin.sessions().setPage(player.getUniqueId(), "snapshots");
-        Set<String> names = plugin.snapshots().snapshotNames();
+        List<String> names = new ArrayList<>(plugin.snapshots().snapshotNames());
+        int pages = ContainerPages.pageCount(Math.max(1, names.size() + 1));
+        page = ContainerPages.clampPage(page, Math.max(1, names.size() + 1));
         GuiHolder holder = new GuiHolder(Page.SNAPSHOTS,
-                entity == null ? null : entity.getUniqueId(), null, 0);
+                entity == null ? null : entity.getUniqueId(), null, page);
         Inventory inv = Bukkit.createInventory(holder, 54,
-                plugin.mm().deserialize("<dark_gray>Snapshots (" + names.size() + ")"));
+                plugin.mm().deserialize("<dark_gray>Snapshots (" + names.size() + ")"
+                        + (pages > 1 ? " <gray>(p. " + (page + 1) + "/" + pages + ")" : "")));
         holder.inv = inv;
+        int start = ContainerPages.startIndex(page, Math.max(1, names.size() + 1));
         int i = 0;
-        for (String name : names) {
-            if (i >= 44) {
-                break;
-            }
-            inv.setItem(i++, named(Material.ENDER_CHEST, "<aqua>" + escape(name),
-                    entity == null ? "<gray>No entity selected"
+        for (int k = start; k < names.size() && i < 44; k++, i++) {
+            String name = names.get(k);
+            inv.setItem(i, named(Material.ENDER_CHEST, "<aqua>" + escape(name),
+                    entity == null ? "<gray>No entity selected — pick one to restore"
                             : "<yellow>Click to restore onto this entity",
-                    entity == null ? "" : "<gray>Shift-click also works"));
+                    entity == null ? "" : "<gray>Restoring overwrites listed fields"));
         }
-        inv.setItem(44, entity == null ? filler() : named(Material.WRITABLE_BOOK,
-                "<green>Save snapshot of this entity", "<yellow>Click to name it"));
+        if (start + 44 >= names.size() && entity != null) {
+            inv.setItem(Math.min(44, names.size() - start), named(Material.WRITABLE_BOOK,
+                    "<green>Save snapshot of this entity", "<yellow>Click to name it"));
+        }
         for (int j = 45; j < 54; j++) {
             inv.setItem(j, filler());
         }
-        inv.setItem(45, navBack());
+        if (entity != null) {
+            inv.setItem(GuiNav.BACK_54, navBack());
+        } else {
+            inv.setItem(GuiNav.BACK_54, navClose());
+        }
+        inv.setItem(GuiNav.HELP_54, helpItem("Snapshots capture listed fields only.",
+                "Restore previews nothing — it applies now."));
+        if (ContainerPages.hasPrev(page, Math.max(1, names.size() + 1))) {
+            inv.setItem(GuiNav.PREV_54, prevButton(page, pages));
+        }
+        if (ContainerPages.hasNext(page, Math.max(1, names.size() + 1))) {
+            inv.setItem(GuiNav.NEXT_54, nextButton(page, pages));
+        }
+        inv.setItem(GuiNav.REFRESH_54, navRefresh());
+        inv.setItem(GuiNav.CLOSE_54, navClose());
         player.openInventory(inv);
     }
 
     public void openPresets(Player player, Entity entity) {
+        openPresets(player, entity, 0);
+    }
+
+    public void openPresets(Player player, Entity entity, int page) {
         if (!plugin.permitted(player, StudioPermissions.PRESETS)) {
             plugin.send(player, plugin.msg("no-permission"));
             return;
         }
         plugin.sessions().setPage(player.getUniqueId(), "presets");
-        Set<String> names = plugin.snapshots().presetNames();
+        List<String> names = new ArrayList<>(plugin.snapshots().presetNames());
+        int pages = ContainerPages.pageCount(Math.max(1, names.size() + 1));
+        page = ContainerPages.clampPage(page, Math.max(1, names.size() + 1));
         GuiHolder holder = new GuiHolder(Page.PRESETS,
-                entity == null ? null : entity.getUniqueId(), null, 0);
+                entity == null ? null : entity.getUniqueId(), null, page);
         Inventory inv = Bukkit.createInventory(holder, 54,
-                plugin.mm().deserialize("<dark_gray>Presets (" + names.size() + ")"));
+                plugin.mm().deserialize("<dark_gray>Presets (" + names.size() + ")"
+                        + (pages > 1 ? " <gray>(p. " + (page + 1) + "/" + pages + ")" : "")));
         holder.inv = inv;
+        int start = ContainerPages.startIndex(page, Math.max(1, names.size() + 1));
         int i = 0;
-        for (String name : names) {
-            if (i >= 44) {
-                break;
-            }
+        for (int k = start; k < names.size() && i < 44; k++, i++) {
+            String name = names.get(k);
             List<String> lore = new ArrayList<>();
             if (entity != null) {
                 var preview = plugin.snapshots().previewPreset(name, entity,
@@ -1274,8 +1463,8 @@ public class StudioGUI implements Listener {
                     lore.add("<green>Already matches — nothing would change");
                 } else {
                     lore.add("<gray>Would change " + preview.size() + " field(s):");
-                    for (int k = 0; k < Math.min(4, preview.size()); k++) {
-                        var pe = preview.get(k);
+                    for (int m = 0; m < Math.min(4, preview.size()); m++) {
+                        var pe = preview.get(m);
                         lore.add("<dark_gray>- <white>" + escape(trunc(pe.label(), 30)));
                     }
                     if (preview.size() > 4) {
@@ -1286,15 +1475,53 @@ public class StudioGUI implements Listener {
             } else {
                 lore.add("<gray>Select an entity to apply");
             }
-            inv.setItem(i++, named(Material.ENDER_EYE, "<light_purple>" + escape(name),
+            inv.setItem(i, named(Material.ENDER_EYE, "<light_purple>" + escape(name),
                     lore.toArray(new String[0])));
         }
-        inv.setItem(44, entity == null ? filler() : named(Material.WRITABLE_BOOK,
-                "<green>Save current entity as preset", "<yellow>Click to name it"));
+        if (start + 44 >= names.size() && entity != null) {
+            inv.setItem(Math.min(44, Math.max(0, names.size() - start)), named(Material.WRITABLE_BOOK,
+                    "<green>Save current entity as preset", "<yellow>Click to name it"));
+        }
         for (int j = 45; j < 54; j++) {
             inv.setItem(j, filler());
         }
-        inv.setItem(45, navBack());
+        if (entity != null) {
+            inv.setItem(GuiNav.BACK_54, navBack());
+        } else {
+            inv.setItem(GuiNav.BACK_54, navClose());
+        }
+        inv.setItem(GuiNav.HELP_54, helpItem("Preview shows the first 4 changed fields.",
+                "Right-click picks properties / equipment / behavior."));
+        if (ContainerPages.hasPrev(page, Math.max(1, names.size() + 1))) {
+            inv.setItem(GuiNav.PREV_54, prevButton(page, pages));
+        }
+        if (ContainerPages.hasNext(page, Math.max(1, names.size() + 1))) {
+            inv.setItem(GuiNav.NEXT_54, nextButton(page, pages));
+        }
+        inv.setItem(GuiNav.REFRESH_54, navRefresh());
+        inv.setItem(GuiNav.CLOSE_54, navClose());
+        player.openInventory(inv);
+    }
+
+    /** Section picker opened by right-clicking a preset: narrow the apply. */
+    public void openPresetSections(Player player, Entity entity, String preset) {
+        GuiHolder picker = new GuiHolder(Page.PRESETS, entity.getUniqueId(),
+                "sections:" + preset, 0);
+        Inventory inv = Bukkit.createInventory(picker, 27,
+                plugin.mm().deserialize("<dark_gray>Apply: " + escape(trunc(preset, 16))));
+        picker.inv = inv;
+        fill(inv, 27);
+        inv.setItem(10, named(Material.BOOK, "<aqua>Properties only",
+                "<gray>Preview this section first", "<yellow>Click to apply"));
+        inv.setItem(12, named(Material.IRON_CHESTPLATE, "<aqua>Equipment only",
+                "<yellow>Click to apply"));
+        inv.setItem(14, named(Material.LEAD, "<aqua>Behavior only",
+                "<yellow>Click to apply"));
+        inv.setItem(16, named(Material.ENDER_EYE, "<green>Everything",
+                "<yellow>Click to apply"));
+        inv.setItem(GuiNav.BACK_27, navBack());
+        inv.setItem(25, navRefresh());
+        inv.setItem(GuiNav.CLOSE_27, navClose());
         player.openInventory(inv);
     }
 
@@ -1305,8 +1532,14 @@ public class StudioGUI implements Listener {
         if (!(event.getView().getTopInventory().getHolder() instanceof GuiHolder holder)) {
             return;
         }
+        // Button boards, never storage: cancel first so shift-clicks,
+        // number keys, offhand swaps, double-clicks and drags can never
+        // move GUI items into player inventories or vice versa.
         event.setCancelled(true);
         if (!(event.getWhoClicked() instanceof Player player)) {
+            return;
+        }
+        if (GuiNav.isUnsafeClick(event.getClick().name(), false)) {
             return;
         }
         if (holder.page == Page.CONTAINER) {
@@ -1338,6 +1571,25 @@ public class StudioGUI implements Listener {
             }
         }
         int slot = event.getSlot();
+        // Universal navigation: Refresh (52) redraws the live entity on
+        // every 54-page; Close (53) closes except where 53 is a guarded
+        // destructive action (dashboard / effects / trades / behavior).
+        if (event.getView().getTopInventory().getSize() == 54 && holder.page != Page.CONFIRM) {
+            if (slot == GuiNav.REFRESH_54) {
+                refresh(player, holder);
+                return;
+            }
+            if (slot == GuiNav.CLOSE_54 && holder.page != Page.DASHBOARD
+                    && holder.page != Page.EFFECTS && holder.page != Page.TRADES
+                    && holder.page != Page.BEHAVIOR) {
+                player.closeInventory();
+                return;
+            }
+            if (slot == GuiNav.HELP_54) {
+                plugin.send(player, "<aqua>Back <gray>= dashboard · <yellow>Refresh <gray>= re-read entity · <red>Close <gray>= Esc works too · <gray>type <red>cancel <gray>in chat to abort input.");
+                return;
+            }
+        }
         boolean right = event.isRightClick();
         boolean shift = event.isShiftClick();
         switch (holder.page) {
@@ -1346,12 +1598,12 @@ public class StudioGUI implements Listener {
             case PROPERTIES -> clickProperties(player, entity, holder, slot, right);
             case EQUIPMENT -> clickEquipment(player, entity, slot, right, shift,
                     event.getCurrentItem());
-            case ATTRIBUTES -> clickAttributes(player, entity, slot, right);
-            case EFFECTS -> clickEffects(player, entity, slot, shift);
+            case ATTRIBUTES -> clickAttributes(player, entity, holder, slot, right);
+            case EFFECTS -> clickEffects(player, entity, holder, slot, shift);
             case BEHAVIOR -> clickBehavior(player, entity, slot, right);
-            case TRADES -> clickTrades(player, entity, slot, shift);
+            case TRADES -> clickTrades(player, entity, holder, slot, shift);
             case ITEM -> clickItem(player, entity, holder, slot, right);
-            case HISTORY -> clickHistory(player, entity, slot);
+            case HISTORY -> clickHistory(player, entity, holder, slot);
             case SNAPSHOTS -> clickSnapshots(player, entity, holder, slot);
             case PRESETS -> clickPresets(player, entity, holder, slot, right);
             case CONFIRM -> clickConfirm(player, holder, slot);
@@ -1419,6 +1671,7 @@ public class StudioGUI implements Listener {
                             "<yellow>Type the new custom name (blank clears, cancel aborts):");
                 }
             }
+            case 44 -> player.closeInventory();
             case 48 -> openHistory(player, entity);
             case 49 -> openSnapshots(player, entity);
             case 50 -> openPresets(player, entity);
@@ -1432,22 +1685,29 @@ public class StudioGUI implements Listener {
                     plugin.send(player, plugin.msg("no-permission"));
                     return;
                 }
+                ConfirmAction remove = (p, e) -> {
+                    plugin.history().record(new EditRecord(p.getUniqueId(),
+                            e.getUniqueId(), e.getType().name(), "Remove entity",
+                            "existed", "removed", false, "DESTRUCTIVE", null));
+                    plugin.sessions().closeForEntity(e.getUniqueId());
+                    plugin.stashes().drop(e.getUniqueId());
+                    e.remove();
+                    p.closeInventory();
+                    plugin.send(p, "<red>Entity removed.");
+                };
                 if (plugin.getConfig().getBoolean("settings.editor.confirm-destructive-actions", true)) {
                     confirm(player, entity, "Remove entity",
                             "Permanently remove this " + entity.getType().name().toLowerCase()
                                     + "? This cannot be undone.", StudioPermissions.DATA_EDIT,
-                            (p, e) -> {
-                                plugin.history().record(new EditRecord(p.getUniqueId(),
-                                        e.getUniqueId(), e.getType().name(), "Remove entity",
-                                        "existed", "removed", false, "DESTRUCTIVE", null));
-                                plugin.sessions().closeForEntity(e.getUniqueId());
-                                plugin.stashes().drop(e.getUniqueId());
-                                e.remove();
-                                p.closeInventory();
-                                plugin.send(p, "<red>Entity removed.");
-                            });
+                            remove);
                     return;
                 }
+                // Confirmations disabled in config: the shift-click above is
+                // the explicit confirmation, so execute with a fresh
+                // permission + target re-check inside the confirm path.
+                confirm(player, entity, "Remove entity",
+                        "Confirm: remove this " + entity.getType().name().toLowerCase() + "?",
+                        StudioPermissions.DATA_EDIT, remove);
             }
             default -> {
             }
@@ -1461,9 +1721,23 @@ public class StudioGUI implements Listener {
             openDashboard(player, entity);
             return;
         }
+        String filter = holder.data;
+        List<EntityProperty<?>> all = filter == null || filter.isBlank()
+                ? plugin.properties().listFor(entity)
+                : plugin.properties().searchFor(entity, filter);
+        int total = Math.max(1, all.size());
+        int pages = ContainerPages.pageCount(total);
+        if (slot == 48 && ContainerPages.hasPrev(holder.pageNum, total)) {
+            openProperties(player, entity, filter, holder.pageNum - 1);
+            return;
+        }
+        if (slot == 50 && ContainerPages.hasNext(holder.pageNum, total)) {
+            openProperties(player, entity, filter, holder.pageNum + 1);
+            return;
+        }
         if (slot == 49) {
-            if (right && holder.data != null) {
-                openProperties(player, entity, null);
+            if (right && filter != null && !filter.isBlank()) {
+                openProperties(player, entity, null, 0);
             } else {
                 askChat(player, entity.getUniqueId(), InputKind.SEARCH, null,
                         "<yellow>Type a property name to filter by:");
@@ -1473,14 +1747,11 @@ public class StudioGUI implements Listener {
         if (slot >= 45) {
             return;
         }
-        String filter = holder.data;
-        List<EntityProperty<?>> all = filter == null || filter.isBlank()
-                ? plugin.properties().listFor(entity)
-                : plugin.properties().searchFor(entity, filter);
-        if (slot >= all.size()) {
+        int idx = ContainerPages.startIndex(holder.pageNum, total) + slot;
+        if (idx < 0 || idx >= all.size()) {
             return;
         }
-        EntityProperty prop = all.get(slot);
+        EntityProperty prop = all.get(idx);
         EntityProperty.Support support = prop.support(entity);
         if (!support.writable()) {
             // Never pretend an unsupported control works: read-only values are
@@ -1525,7 +1796,7 @@ public class StudioGUI implements Listener {
             } else {
                 plugin.send(player, "<red>" + err);
             }
-            openProperties(player, entity, filter);
+            openProperties(player, entity, filter, holder.pageNum);
             return;
         }
         askChat(player, entity.getUniqueId(), InputKind.PROP_VALUE, prop.id(),
@@ -1542,9 +1813,17 @@ public class StudioGUI implements Listener {
             openDashboard(player, entity);
             return;
         }
-        if (slot == 0) {
+        if (slot == 7) {
+            openEquipment(player, entity);
+            return;
+        }
+        if (slot == 25) {
+            player.closeInventory();
+            return;
+        }
+        if (slot == 0 || slot == 1) {
             plugin.send(player,
-                    "<gray>Click a drop-chance row item to cycle it (mobs only).");
+                    "<gray>Click a label slot below to cycle drop chance (mobs only).");
             return;
         }
         if (slot == 26) {
@@ -1722,15 +2001,12 @@ public class StudioGUI implements Listener {
         }
     }
 
-    private void clickAttributes(Player player, Entity entity, int slot, boolean right) {
+    private void clickAttributes(Player player, Entity entity, GuiHolder holder, int slot, boolean right) {
         if (!(entity instanceof Attributable attr)) {
             return;
         }
         if (slot == 45) {
             openDashboard(player, entity);
-            return;
-        }
-        if (slot >= 45) {
             return;
         }
         List<AttributeInstance> list = new ArrayList<>();
@@ -1740,10 +2016,24 @@ public class StudioGUI implements Listener {
                 list.add(inst);
             }
         }
-        if (slot >= list.size()) {
+        int total = Math.max(1, list.size());
+        int pages = ContainerPages.pageCount(total);
+        if (slot == 48 && ContainerPages.hasPrev(holder.pageNum, total)) {
+            openAttributes(player, entity, holder.pageNum - 1);
             return;
         }
-        AttributeInstance inst = list.get(slot);
+        if (slot == 50 && ContainerPages.hasNext(holder.pageNum, total)) {
+            openAttributes(player, entity, holder.pageNum + 1);
+            return;
+        }
+        if (slot >= 45) {
+            return;
+        }
+        int idx = ContainerPages.startIndex(holder.pageNum, total) + slot;
+        if (idx < 0 || idx >= list.size()) {
+            return;
+        }
+        AttributeInstance inst = list.get(idx);
         if (!plugin.permitted(player, StudioPermissions.DATA_EDIT)) {
             plugin.send(player, plugin.msg("no-permission"));
             return;
@@ -1766,7 +2056,7 @@ public class StudioGUI implements Listener {
                             }
                         }));
             }
-            openAttributes(player, entity);
+            openAttributes(player, entity, holder.pageNum);
             return;
         }
         askChat(player, entity.getUniqueId(), InputKind.ATTR_VALUE, key,
@@ -1775,12 +2065,27 @@ public class StudioGUI implements Listener {
                         + round3(inst.getDefaultValue()) + "<yellow>):");
     }
 
-    private void clickEffects(Player player, Entity entity, int slot, boolean shift) {
+    private void clickEffects(Player player, Entity entity, GuiHolder holder, int slot, boolean shift) {
         if (!(entity instanceof LivingEntity living)) {
             return;
         }
         if (slot == 45) {
             openDashboard(player, entity);
+            return;
+        }
+        if (slot == 46) {
+            player.closeInventory();
+            return;
+        }
+        int perPage = 44;
+        var allFx = new ArrayList<>(living.getActivePotionEffects());
+        int pages = Math.max(1, (Math.max(1, allFx.size() + 1) + perPage - 1) / perPage);
+        if (slot == 48 && holder.pageNum > 0) {
+            openEffects(player, entity, holder.pageNum - 1);
+            return;
+        }
+        if (slot == 50 && holder.pageNum < pages - 1) {
+            openEffects(player, entity, holder.pageNum + 1);
             return;
         }
         if (slot == 53) {
@@ -1793,21 +2098,32 @@ public class StudioGUI implements Listener {
                 return;
             }
             var before = new ArrayList<>(living.getActivePotionEffects());
-            living.clearActivePotionEffects();
-            if (plugin.getConfig().getBoolean("settings.history.enabled", true)) {
-                plugin.history().record(new EditRecord(player.getUniqueId(),
-                        entity.getUniqueId(), entity.getType().name(), "Clear all effects",
-                        before.size() + " active", "none", true, "ADVANCED", () -> {
-                            Entity e = Bukkit.getEntity(entity.getUniqueId());
-                            if (e instanceof LivingEntity l && e.isValid() && !e.isDead()) {
-                                l.addPotionEffects(before);
-                            }
-                        }));
+            if (before.isEmpty()) {
+                plugin.send(player, "<gray>No effects to clear.");
+                return;
             }
-            openEffects(player, entity);
+            confirm(player, entity, "Clear effects",
+                    "Remove all " + before.size() + " effect(s)? Recorded for undo.",
+                    StudioPermissions.DATA_EDIT, (p, e) -> {
+                        LivingEntity l = (LivingEntity) e;
+                        l.clearActivePotionEffects();
+                        if (plugin.getConfig().getBoolean("settings.history.enabled", true)) {
+                            plugin.history().record(new EditRecord(p.getUniqueId(),
+                                    e.getUniqueId(), e.getType().name(), "Clear all effects",
+                                    before.size() + " active", "none", true, "ADVANCED", () -> {
+                                        Entity e2 = Bukkit.getEntity(e.getUniqueId());
+                                        if (e2 instanceof LivingEntity l2 && e2.isValid() && !e2.isDead()) {
+                                            l2.addPotionEffects(before);
+                                        }
+                                    }));
+                        }
+                        openEffects(p, e, 0);
+                    });
             return;
         }
-        if (slot == 44) {
+        int start = holder.pageNum * perPage;
+        // Add button sits right after the last effect on the final page.
+        if (start + perPage >= allFx.size() && slot == Math.min(44, allFx.size() - start)) {
             if (!plugin.permitted(player, StudioPermissions.DATA_EDIT)) {
                 plugin.send(player, plugin.msg("no-permission"));
                 return;
@@ -1816,30 +2132,41 @@ public class StudioGUI implements Listener {
                     "<yellow>Type <white>TYPE:DURATION_TICKS:AMPLIFIER<yellow> (e.g. SPEED:1200:1):");
             return;
         }
-        var active = new ArrayList<>(living.getActivePotionEffects());
-        if (slot < active.size()) {
-            if (!plugin.permitted(player, StudioPermissions.DATA_EDIT)) {
-                plugin.send(player, plugin.msg("no-permission"));
-                return;
-            }
-            var fx = active.get(slot);
-            living.removePotionEffect(fx.getType());
-            plugin.history().record(new EditRecord(player.getUniqueId(), entity.getUniqueId(),
-                    entity.getType().name(), "Remove effect " + fx.getType().getKey().getKey(),
-                    fx.getAmplifier() + "x" + fx.getDuration() + "t", "removed", true,
-                    "NORMAL", () -> {
-                        Entity e = Bukkit.getEntity(entity.getUniqueId());
-                        if (e instanceof LivingEntity l && e.isValid() && !e.isDead()) {
-                            l.addPotionEffect(fx);
-                        }
-                    }));
-            openEffects(player, entity);
+        int idx = start + slot;
+        if (slot < 0 || slot >= perPage || idx < 0 || idx >= allFx.size()) {
+            return;
         }
+        if (!plugin.permitted(player, StudioPermissions.DATA_EDIT)) {
+            plugin.send(player, plugin.msg("no-permission"));
+            return;
+        }
+        var fx = allFx.get(idx);
+        confirm(player, entity, "Remove effect",
+                "Remove " + fx.getType().getKey().getKey() + "? Recorded for undo.",
+                StudioPermissions.DATA_EDIT, (p, e) -> {
+                    if (e instanceof LivingEntity l) {
+                        l.removePotionEffect(fx.getType());
+                    }
+                    plugin.history().record(new EditRecord(p.getUniqueId(), e.getUniqueId(),
+                            e.getType().name(), "Remove effect " + fx.getType().getKey().getKey(),
+                            fx.getAmplifier() + "x" + fx.getDuration() + "t", "removed", true,
+                            "NORMAL", () -> {
+                                Entity e2 = Bukkit.getEntity(e.getUniqueId());
+                                if (e2 instanceof LivingEntity l2 && e2.isValid() && !e2.isDead()) {
+                                    l2.addPotionEffect(fx);
+                                }
+                            }));
+                    openEffects(p, e, holder.pageNum);
+                });
     }
 
     private void clickBehavior(Player player, Entity entity, int slot, boolean right) {
         if (slot == 45) {
             openDashboard(player, entity);
+            return;
+        }
+        if (slot == 46 || slot == 51) {
+            player.closeInventory();
             return;
         }
         if (slot == 49) {
@@ -1998,7 +2325,7 @@ public class StudioGUI implements Listener {
         }
     }
 
-    private void clickTrades(Player player, Entity entity, int slot, boolean shift) {
+    private void clickTrades(Player player, Entity entity, GuiHolder holder, int slot, boolean shift) {
         if (!(entity instanceof org.bukkit.inventory.Merchant merchant)) {
             return;
         }
@@ -2006,11 +2333,32 @@ public class StudioGUI implements Listener {
             openDashboard(player, entity);
             return;
         }
-        if (slot == 49 && entity instanceof org.bukkit.entity.Villager) {
-            openProperties(player, entity, "villager");
+        if (slot == 46 && entity instanceof org.bukkit.entity.Villager) {
+            openProperties(player, entity, "villager", 0);
             return;
         }
-        if (slot == 44) {
+        if (slot == 51) {
+            player.closeInventory();
+            return;
+        }
+        List<org.bukkit.inventory.MerchantRecipe> all;
+        try {
+            all = new ArrayList<>(merchant.getRecipes());
+        } catch (Exception e) {
+            return;
+        }
+        int total = Math.max(1, all.size() + 1);
+        if (slot == 48 && ContainerPages.hasPrev(holder.pageNum, total)) {
+            openTrades(player, entity, holder.pageNum - 1);
+            return;
+        }
+        if (slot == 50 && ContainerPages.hasNext(holder.pageNum, total)) {
+            openTrades(player, entity, holder.pageNum + 1);
+            return;
+        }
+        int start = ContainerPages.startIndex(holder.pageNum, total);
+        // Add-offer button sits right after the last offer on the final page.
+        if (start + 44 >= all.size() && slot == Math.min(44, all.size() - start)) {
             if (!plugin.permitted(player, StudioPermissions.TRADES)) {
                 plugin.send(player, plugin.msg("no-permission"));
                 return;
@@ -2044,7 +2392,7 @@ public class StudioGUI implements Listener {
                         }
                     });
             plugin.send(player, "<green>Offer added. Edit uses via the offer icon.");
-            openTrades(player, entity);
+            openTrades(player, entity, holder.pageNum);
             return;
         }
         if (slot == 53) {
@@ -2056,51 +2404,66 @@ public class StudioGUI implements Listener {
                 plugin.send(player, plugin.msg("no-permission"));
                 return;
             }
-            var before = new ArrayList<>(merchant.getRecipes());
-            merchant.setRecipes(new ArrayList<>());
-            recordSimple(player, entity, "Remove ALL offers", before.size() + " offers",
-                    "none", e2 -> {
-                        if (e2 instanceof org.bukkit.inventory.Merchant m2) {
-                            m2.setRecipes(new ArrayList<>(before));
+            var before = new ArrayList<>(all);
+            if (before.isEmpty()) {
+                plugin.send(player, "<gray>No offers to remove.");
+                return;
+            }
+            confirm(player, entity, "Remove offers",
+                    "Remove all " + before.size() + " offer(s)? Recorded for undo.",
+                    StudioPermissions.TRADES, (p, e) -> {
+                        if (e instanceof org.bukkit.inventory.Merchant m) {
+                            m.setRecipes(new ArrayList<>());
                         }
+                        recordSimple(p, e, "Remove ALL offers", before.size() + " offers",
+                                "none", e2 -> {
+                                    if (e2 instanceof org.bukkit.inventory.Merchant m2) {
+                                        m2.setRecipes(new ArrayList<>(before));
+                                    }
+                                });
+                        plugin.send(p, "<red>All offers removed.");
+                        openTrades(p, e, 0);
                     });
-            plugin.send(player, "<red>All offers removed.");
-            openTrades(player, entity);
             return;
         }
-        List<org.bukkit.inventory.MerchantRecipe> recipes;
-        try {
-            recipes = merchant.getRecipes();
-        } catch (Exception e) {
+        List<org.bukkit.inventory.MerchantRecipe> recipes = all;
+        int idx = start + slot;
+        if (slot < 0 || slot >= 44 || idx < 0 || idx >= recipes.size()) {
             return;
         }
-        if (slot < recipes.size()) {
-            if (!plugin.permitted(player, StudioPermissions.TRADES)) {
-                plugin.send(player, plugin.msg("no-permission"));
-                return;
-            }
-            int idx = slot;
-            if (shift) {
-                var removed = recipes.get(idx);
-                List<org.bukkit.inventory.MerchantRecipe> rs = new ArrayList<>(recipes);
-                rs.remove(idx);
-                merchant.setRecipes(rs);
-                recordSimple(player, entity,
-                        "Remove offer (" + removed.getResult().getType().name().toLowerCase()
-                                + ")",
-                        "offer #" + (idx + 1), "removed", e2 -> {
-                            if (e2 instanceof org.bukkit.inventory.Merchant m2) {
-                                List<org.bukkit.inventory.MerchantRecipe> rs2 =
-                                        new ArrayList<>(m2.getRecipes());
-                                rs2.add(Math.min(idx, rs2.size()), removed);
-                                m2.setRecipes(rs2);
+        if (!plugin.permitted(player, StudioPermissions.TRADES)) {
+            plugin.send(player, plugin.msg("no-permission"));
+            return;
+        }
+        if (shift) {
+            var removed = recipes.get(idx);
+            confirm(player, entity, "Remove offer",
+                    "Remove offer #" + (idx + 1) + " (" + removed.getResult().getType().name().toLowerCase() + ")?",
+                    StudioPermissions.TRADES, (p, e) -> {
+                        if (e instanceof org.bukkit.inventory.Merchant m) {
+                            List<org.bukkit.inventory.MerchantRecipe> rs = new ArrayList<>(m.getRecipes());
+                            if (idx < rs.size()) {
+                                rs.remove(idx);
+                                m.setRecipes(rs);
                             }
-                        });
-                plugin.send(player, "<gray>Offer removed.");
-                openTrades(player, entity);
-                return;
-            }
-            // plain click: reset uses (restock this offer)
+                        }
+                        recordSimple(p, e,
+                                "Remove offer (" + removed.getResult().getType().name().toLowerCase() + ")",
+                                "offer #" + (idx + 1), "removed", e2 -> {
+                                    if (e2 instanceof org.bukkit.inventory.Merchant m2) {
+                                        List<org.bukkit.inventory.MerchantRecipe> rs2 =
+                                                new ArrayList<>(m2.getRecipes());
+                                        rs2.add(Math.min(idx, rs2.size()), removed);
+                                        m2.setRecipes(rs2);
+                                    }
+                                });
+                        plugin.send(p, "<gray>Offer removed.");
+                        openTrades(p, e, holder.pageNum);
+                    });
+            return;
+        }
+        // plain click: reset uses (restock this offer)
+        {
             var r = recipes.get(idx);
             int oldUses = r.getUses();
             // MerchantRecipe is mutable in the live list for most implementations;
@@ -2118,7 +2481,7 @@ public class StudioGUI implements Listener {
                         }
                     });
             plugin.send(player, "<green>Offer restocked.");
-            openTrades(player, entity);
+            openTrades(player, entity, holder.pageNum);
         }
     }
 
@@ -2135,6 +2498,18 @@ public class StudioGUI implements Listener {
         }
         if (slot == 22) {
             openEquipment(player, entity);
+            return;
+        }
+        if (slot == 8) {
+            openItemEditor(player, entity, idx);
+            return;
+        }
+        if (slot == 26) {
+            player.closeInventory();
+            return;
+        }
+        if (slot == 0) {
+            plugin.send(player, "<gray>Edits apply to the live slot · amount clamps to max stack.");
             return;
         }
         if (!plugin.permitted(player, StudioPermissions.INV_EDIT)) {
@@ -2213,28 +2588,43 @@ public class StudioGUI implements Listener {
         plugin.send(player, "<green>" + label + " done.");
     }
 
-    private void clickHistory(Player player, Entity entity, int slot) {
+    private void clickHistory(Player player, Entity entity, GuiHolder holder, int slot) {
         if (slot == 45 && entity != null) {
             openDashboard(player, entity);
             return;
         }
-        if (slot == 49) {
-            undoLast(player, entity);
+        if (slot == 45) {
+            player.closeInventory();
             return;
         }
-        List<EditRecord> records = plugin.history().recent(player.getUniqueId(), 45);
-        if (slot < records.size()) {
-            if (!plugin.permitted(player, StudioPermissions.UNDO)) {
-                plugin.send(player, plugin.msg("no-permission"));
-                return;
-            }
-            // Undo this specific record is approximated by undoing in order until
-            // it is reached; single-step undo is exposed as "Undo last".
-            undoLast(player, entity);
+        List<EditRecord> all = plugin.history().recent(player.getUniqueId(), Integer.MAX_VALUE);
+        int total = Math.max(1, all.size());
+        if (slot == 48 && ContainerPages.hasPrev(holder.pageNum, total)) {
+            openHistory(player, entity, holder.pageNum - 1);
+            return;
         }
+        if (slot == 50 && ContainerPages.hasNext(holder.pageNum, total)) {
+            openHistory(player, entity, holder.pageNum + 1);
+            return;
+        }
+        if (slot == 49) {
+            undoLast(player, entity, holder.pageNum);
+            return;
+        }
+        int idx = ContainerPages.startIndex(holder.pageNum, total) + slot;
+        if (idx < 0 || idx >= all.size()) {
+            return;
+        }
+        if (!plugin.permitted(player, StudioPermissions.UNDO)) {
+            plugin.send(player, plugin.msg("no-permission"));
+            return;
+        }
+        // Undo this specific record is approximated by undoing in order until
+        // it is reached; single-step undo is exposed as "Undo last".
+        undoLast(player, entity, holder.pageNum);
     }
 
-    private void undoLast(Player player, Entity entity) {
+    private void undoLast(Player player, Entity entity, int page) {
         if (!plugin.permitted(player, StudioPermissions.UNDO)) {
             plugin.send(player, plugin.msg("no-permission"));
             return;
@@ -2263,19 +2653,33 @@ public class StudioGUI implements Listener {
             }
         }
         if (entity != null && Bukkit.getEntity(entity.getUniqueId()) != null) {
-            openHistory(player, entity);
+            openHistory(player, entity, page);
+        } else if (entity == null) {
+            openHistory(player, null, page);
         }
     }
 
     private void clickSnapshots(Player player, Entity entity, GuiHolder holder, int slot) {
-        if (slot == 45 && entity != null) {
-            openDashboard(player, entity);
+        if (slot == 45) {
+            if (entity != null) {
+                openDashboard(player, entity);
+            } else {
+                player.closeInventory();
+            }
             return;
         }
-        if (slot == 44) {
-            if (entity == null) {
-                return;
-            }
+        List<String> names = new ArrayList<>(plugin.snapshots().snapshotNames());
+        int total = Math.max(1, names.size() + 1);
+        if (slot == 48 && ContainerPages.hasPrev(holder.pageNum, total)) {
+            openSnapshots(player, entity, holder.pageNum - 1);
+            return;
+        }
+        if (slot == 50 && ContainerPages.hasNext(holder.pageNum, total)) {
+            openSnapshots(player, entity, holder.pageNum + 1);
+            return;
+        }
+        int start = ContainerPages.startIndex(holder.pageNum, total);
+        if (entity != null && start + 44 >= names.size() && slot == Math.min(44, names.size() - start)) {
             if (!plugin.permitted(player, StudioPermissions.SNAPSHOT)) {
                 plugin.send(player, plugin.msg("no-permission"));
                 return;
@@ -2284,8 +2688,8 @@ public class StudioGUI implements Listener {
                     "<yellow>Type a name for this snapshot:");
             return;
         }
-        List<String> names = new ArrayList<>(plugin.snapshots().snapshotNames());
-        if (slot < names.size() && entity != null) {
+        int idx = start + slot;
+        if (idx < 0 || idx >= names.size() || entity == null || slot >= 44) {
             if (!plugin.permitted(player, StudioPermissions.SNAPSHOT)) {
                 plugin.send(player, plugin.msg("no-permission"));
                 return;
@@ -2298,11 +2702,11 @@ public class StudioGUI implements Listener {
                 player.closeInventory();
                 return;
             }
-            String name = names.get(slot);
+            String name = names.get(idx);
             int[] res = plugin.snapshots().applySnapshot(name, target, player);
             plugin.send(player, "<green>Snapshot '<white>" + escape(name) + "<green>' restored: "
                     + res[0] + " changed, " + res[1] + " skipped.");
-            openSnapshots(player, entity);
+            openSnapshots(player, entity, holder.pageNum);
         }
     }
 
@@ -2326,7 +2730,15 @@ public class StudioGUI implements Listener {
             }
             String preset = holder.data.substring("sections:".length());
             if (slot == 22) {
-                openPresets(player, target);
+                openPresets(player, target, 0);
+                return;
+            }
+            if (slot == 25) {
+                openPresetSections(player, target, preset);
+                return;
+            }
+            if (slot == 26) {
+                player.closeInventory();
                 return;
             }
             var sections = switch (slot) {
@@ -2348,14 +2760,26 @@ public class StudioGUI implements Listener {
             }
             return;
         }
-        if (slot == 45 && entity != null) {
-            openDashboard(player, entity);
+        if (slot == 45) {
+            if (entity != null) {
+                openDashboard(player, entity);
+            } else {
+                player.closeInventory();
+            }
             return;
         }
-        if (slot == 44) {
-            if (entity == null) {
-                return;
-            }
+        List<String> names = new ArrayList<>(plugin.snapshots().presetNames());
+        int total = Math.max(1, names.size() + 1);
+        if (slot == 48 && ContainerPages.hasPrev(holder.pageNum, total)) {
+            openPresets(player, entity, holder.pageNum - 1);
+            return;
+        }
+        if (slot == 50 && ContainerPages.hasNext(holder.pageNum, total)) {
+            openPresets(player, entity, holder.pageNum + 1);
+            return;
+        }
+        int start = ContainerPages.startIndex(holder.pageNum, total);
+        if (entity != null && start + 44 >= names.size() && slot == Math.min(44, names.size() - start)) {
             if (!plugin.permitted(player, StudioPermissions.PRESETS)) {
                 plugin.send(player, plugin.msg("no-permission"));
                 return;
@@ -2364,33 +2788,17 @@ public class StudioGUI implements Listener {
                     "<yellow>Type a name for this preset:");
             return;
         }
-        List<String> names = new ArrayList<>(plugin.snapshots().presetNames());
-        if (slot >= names.size() || entity == null) {
+        int idx = start + slot;
+        if (idx < 0 || idx >= names.size() || entity == null || slot >= 44) {
             return;
         }
         if (!plugin.permitted(player, StudioPermissions.PRESETS)) {
             plugin.send(player, plugin.msg("no-permission"));
             return;
         }
-        String name = names.get(slot);
+        String name = names.get(idx);
         if (right) {
-            // Section picker: properties / equipment / behavior / all.
-            GuiHolder picker = new GuiHolder(Page.PRESETS, entity.getUniqueId(),
-                    "sections:" + name, 0);
-            Inventory inv = Bukkit.createInventory(picker, 27,
-                    plugin.mm().deserialize("<dark_gray>Apply: " + escape(trunc(name, 16))));
-            picker.inv = inv;
-            fill(inv, 27);
-            inv.setItem(10, named(Material.BOOK, "<aqua>Properties only",
-                    "<yellow>Click to apply"));
-            inv.setItem(12, named(Material.IRON_CHESTPLATE, "<aqua>Equipment only",
-                    "<yellow>Click to apply"));
-            inv.setItem(14, named(Material.LEAD, "<aqua>Behavior only",
-                    "<yellow>Click to apply"));
-            inv.setItem(16, named(Material.ENDER_EYE, "<green>Everything",
-                    "<yellow>Click to apply"));
-            inv.setItem(22, navBack());
-            player.openInventory(inv);
+            openPresetSections(player, entity, name);
             return;
         }
         Entity target = resolve(player, holder);
@@ -2405,10 +2813,30 @@ public class StudioGUI implements Listener {
                 EnumSet.allOf(com.entitystudio.snapshot.SnapshotService.Section.class), player);
         plugin.send(player, plugin.msg("preset-applied", "name", escape(name))
                 .replace("<changed>", String.valueOf(res[0])));
-        openPresets(player, entity);
+        openPresets(player, entity, holder.pageNum);
     }
 
     private void clickConfirm(Player player, GuiHolder holder, int slot) {
+        if (slot == 22 || slot == 15) {
+            // Cancel: drop the token, never fire the action, back to dashboard.
+            confirms.remove(holder.data);
+            Entity back = holder.entityUuid == null ? null : Bukkit.getEntity(holder.entityUuid);
+            if (back != null && back.isValid() && !back.isDead()) {
+                openDashboard(player, back);
+            } else {
+                player.closeInventory();
+            }
+            return;
+        }
+        if (slot == 26 || slot == 0) {
+            if (slot == 26) {
+                confirms.remove(holder.data);
+                player.closeInventory();
+            } else {
+                plugin.send(player, "<gray>Confirm = run with fresh checks · Cancel = safe return.");
+            }
+            return;
+        }
         ConfirmEntry entry = confirms.get(holder.data);
         if (entry == null) {
             player.closeInventory();
@@ -2448,6 +2876,14 @@ public class StudioGUI implements Listener {
         }
         if (slot == 22) {
             openDashboard(player, entity);
+            return;
+        }
+        if (slot == 8) {
+            openPlayerInv(player, entity);
+            return;
+        }
+        if (slot == 26) {
+            player.closeInventory();
             return;
         }
         if (slot == 11 && plugin.permitted(player, StudioPermissions.INV_VIEW)) {
@@ -2490,9 +2926,13 @@ public class StudioGUI implements Listener {
                 plugin.mm().deserialize("<dark_gray>" + escape(trunc(title, 24))));
         holder.inv = inv;
         fill(inv, 27);
+        inv.setItem(0, helpItem("Confirm runs a fresh permission + target check.",
+                "Cancel returns to the dashboard safely."));
         inv.setItem(11, named(Material.LIME_DYE, "<green><bold>CONFIRM",
                 "<gray>" + escape(question)));
-        inv.setItem(15, named(Material.RED_DYE, "<red><bold>Cancel", "<gray>Go back"));
+        inv.setItem(15, named(Material.RED_DYE, "<red><bold>Cancel", "<gray>Go back to dashboard"));
+        inv.setItem(22, navBack());
+        inv.setItem(26, navClose());
         player.openInventory(inv);
     }
 
@@ -3029,7 +3469,79 @@ public class StudioGUI implements Listener {
     }
 
     private ItemStack navBack() {
-        return named(Material.ARROW, "<red>Back", "<gray>Back to dashboard");
+        return named(Material.ARROW, "<red>Back", "<gray>Back to dashboard", "<dark_gray>Slot 45 on every page");
+    }
+
+    private ItemStack navClose() {
+        return named(Material.BARRIER, "<red>Close", "<gray>Close this menu", "<dark_gray>Session stays — /entity menu reopens");
+    }
+
+    private ItemStack navRefresh() {
+        return named(Material.SUNFLOWER, "<yellow>Refresh", "<gray>Re-read the entity and redraw", "<dark_gray>Use after outside changes");
+    }
+
+    private ItemStack helpItem(String... lines) {
+        List<String> lore = new ArrayList<>();
+        for (String l : lines) {
+            lore.add("<gray>" + l);
+        }
+        lore.add("<dark_gray>Cancel: type cancel in chat · Esc closes");
+        return named(Material.BOOK, "<aqua>How to use", lore.toArray(new String[0]));
+    }
+
+    private ItemStack prevButton(int page, int pages) {
+        return named(Material.ARROW, "<yellow>Previous page",
+                "<gray>Page " + (page + 1) + " of " + pages, "<yellow>Click to go back");
+    }
+
+    private ItemStack nextButton(int page, int pages) {
+        return named(Material.ARROW, "<yellow>Next page",
+                "<gray>Page " + (page + 2) + " of " + pages, "<yellow>Click to continue");
+    }
+
+    /** Re-reads the live entity and redraws whatever page this menu shows. */
+    private void refresh(Player player, GuiHolder holder) {
+        Entity entity = holder.entityUuid == null ? null : Bukkit.getEntity(holder.entityUuid);
+        if (entity != null && (entity.isDead() || !entity.isValid())) {
+            entity = null;
+        }
+        boolean needsEntity = holder.page != Page.HISTORY && holder.page != Page.SNAPSHOTS
+                && holder.page != Page.PRESETS;
+        if (needsEntity && entity == null) {
+            plugin.send(player, plugin.msg("session-invalid"));
+            player.closeInventory();
+            return;
+        }
+        switch (holder.page) {
+            case DASHBOARD -> { if (entity != null) openDashboard(player, entity); }
+            case PROPERTIES -> { if (entity != null) openProperties(player, entity, holder.data, holder.pageNum); }
+            case ATTRIBUTES -> { if (entity != null) openAttributes(player, entity, holder.pageNum); }
+            case EFFECTS -> { if (entity != null) openEffects(player, entity, holder.pageNum); }
+            case BEHAVIOR -> { if (entity != null) openBehavior(player, entity); }
+            case TRADES -> { if (entity != null) openTrades(player, entity, holder.pageNum); }
+            case PLAYER_INV -> { if (entity != null) openPlayerInv(player, entity); }
+            case CONTAINER -> { if (entity != null) openContainerMirror(player, entity, ContainerPages.parsePage(holder.data)); }
+            case ADVANCED -> { if (entity != null) openAdvanced(player, entity, holder.data, holder.pageNum); }
+            case ITEM -> { if (entity != null) openItemEditor(player, entity, safeIdx(holder.data)); }
+            case HISTORY -> openHistory(player, entity, holder.pageNum);
+            case SNAPSHOTS -> openSnapshots(player, entity, holder.pageNum);
+            case PRESETS -> {
+                if (holder.data != null && holder.data.startsWith("sections:")) {
+                    if (entity != null) openPresetSections(player, entity, holder.data.substring("sections:".length()));
+                } else {
+                    openPresets(player, entity, holder.pageNum);
+                }
+            }
+            default -> { if (entity != null) openDashboard(player, entity); }
+        }
+    }
+
+    private int safeIdx(String data) {
+        try {
+            return Integer.parseInt(data);
+        } catch (Exception e) {
+            return 0;
+        }
     }
 
     private ItemStack toggleItem(boolean on, String name, String hint) {
