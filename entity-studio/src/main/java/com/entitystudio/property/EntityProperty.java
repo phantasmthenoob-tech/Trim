@@ -23,6 +23,15 @@ public interface EntityProperty<T> {
     /** Whether a reliable rollback exists (drives undo eligibility). */
     boolean reversible();
 
+    /** Short applicability scope, e.g. "Living entities" (shown in the GUI). */
+    String scope();
+
+    /** What happens when a write is rejected or fails mid-way. Never promises
+     * more than the implementation delivers. */
+    default String failureBehavior() {
+        return "Validated before write; invalid values are rejected with nothing applied.";
+    }
+
     /** Whether a safe setter exists for this entity (never pretend otherwise). */
     Support support(Entity entity);
 
@@ -43,8 +52,26 @@ public interface EntityProperty<T> {
         NORMAL, ADVANCED, DESTRUCTIVE
     }
 
+    /** Explicit support states — the GUI renders each one honestly and the
+     * guarded write path only accepts {@link #writable} states. */
     enum Support {
-        SUPPORTED, PARTIAL, UNSUPPORTED
+        /** Readable and writable through the generic property editor. */
+        SUPPORTED,
+        /** Readable; the generic write covers only part of the effect. */
+        PARTIAL,
+        /** Would be supported, but is not available for this entity right now. */
+        UNAVAILABLE,
+        /** Readable only; no setter exists and none is pretended. */
+        READ_ONLY,
+        /** Needs a dedicated editor flow (confirm, snapshot, or another page). */
+        SPECIAL,
+        /** Not applicable — hidden from the editor entirely. */
+        UNSUPPORTED;
+
+        /** States the generic {@code apply} write path accepts. */
+        public boolean writable() {
+            return this == SUPPORTED || this == PARTIAL;
+        }
     }
 
     record ParseResult<T>(T value, String error) {

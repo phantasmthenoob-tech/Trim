@@ -30,10 +30,11 @@ public final class SpecificProperties {
     public static void register(PropertyRegistry reg) {
         reg.register(new BaseProperty<Integer>("age", "Age ticks",
                 "Negative = baby growing up; 0+ = adult. Lock it with age lock.",
+                "Ageable mobs",
                 PropertyType.NUMBER, RiskLevel.ADVANCED, true) {
             @Override
-            protected boolean supports(Entity e) {
-                return e instanceof Ageable;
+            public Support support(Entity e) {
+                return e instanceof Ageable ? Support.SUPPORTED : Support.UNSUPPORTED;
             }
 
             @Override
@@ -58,10 +59,11 @@ public final class SpecificProperties {
         });
         reg.register(new BaseProperty<Boolean>("age_lock", "Age lock",
                 "Freezes aging at the current stage.",
+                "Ageable mobs",
                 PropertyType.BOOLEAN, RiskLevel.NORMAL, true) {
             @Override
-            protected boolean supports(Entity e) {
-                return e instanceof Ageable;
+            public Support support(Entity e) {
+                return e instanceof Ageable ? Support.SUPPORTED : Support.UNSUPPORTED;
             }
 
             @Override
@@ -86,10 +88,11 @@ public final class SpecificProperties {
         });
         reg.register(new BaseProperty<Boolean>("baby", "Baby",
                 "Shortcut for age. Restoring 'adult' uses age 0 (approximate).",
+                "Ageable mobs",
                 PropertyType.BOOLEAN, RiskLevel.NORMAL, true) {
             @Override
-            protected boolean supports(Entity e) {
-                return e instanceof Ageable;
+            public Support support(Entity e) {
+                return e instanceof Ageable ? Support.SUPPORTED : Support.UNSUPPORTED;
             }
 
             @Override
@@ -112,16 +115,22 @@ public final class SpecificProperties {
             }
 
             @Override
+            public String failureBehavior() {
+                return "Restoring adult approximates with age 0; the exact prior age is not kept.";
+            }
+
+            @Override
             public ParseResult<Boolean> parse(String input) {
                 return Validators.parseBoolean(input);
             }
         });
         reg.register(new BaseProperty<Boolean>("tamed", "Tamed (native)",
                 "Native taming flag. A plugin-managed guard is NOT native taming.",
+                "Tameable animals",
                 PropertyType.BOOLEAN, RiskLevel.ADVANCED, true) {
             @Override
-            protected boolean supports(Entity e) {
-                return e instanceof Tameable;
+            public Support support(Entity e) {
+                return e instanceof Tameable ? Support.SUPPORTED : Support.UNSUPPORTED;
             }
 
             @Override
@@ -146,10 +155,11 @@ public final class SpecificProperties {
         });
         reg.register(new BaseProperty<Boolean>("sitting", "Sitting",
                 "Native sit pose for sittable mobs.",
+                "Sittable mobs",
                 PropertyType.BOOLEAN, RiskLevel.NORMAL, true) {
             @Override
-            protected boolean supports(Entity e) {
-                return e instanceof Sittable;
+            public Support support(Entity e) {
+                return e instanceof Sittable ? Support.SUPPORTED : Support.UNSUPPORTED;
             }
 
             @Override
@@ -174,13 +184,15 @@ public final class SpecificProperties {
         });
         // ---- villagers ----
         reg.register(new BaseProperty<String>("villager.profession", "Profession",
-                "One of " + Arrays.stream(Villager.Profession.values())
-                        .map(p -> p.name().toLowerCase(Locale.ROOT))
-                        .collect(Collectors.joining(", ")),
+                // NOTE: computed without touching Villager.Profession so registry
+                // construction stays server-free (unit-testable); the full list
+                // is validated against the live registry on write.
+                "Villager profession (farmer, librarian, ...).",
+                "Villagers",
                 PropertyType.ENUM, RiskLevel.NORMAL, true) {
             @Override
-            protected boolean supports(Entity e) {
-                return e instanceof Villager;
+            public Support support(Entity e) {
+                return e instanceof Villager ? Support.SUPPORTED : Support.UNSUPPORTED;
             }
 
             @Override
@@ -219,10 +231,11 @@ public final class SpecificProperties {
         });
         reg.register(new BaseProperty<Integer>("villager.level", "Villager level",
                 "1 (novice) to 5 (master).",
+                "Villagers",
                 PropertyType.NUMBER, RiskLevel.NORMAL, true) {
             @Override
-            protected boolean supports(Entity e) {
-                return e instanceof Villager;
+            public Support support(Entity e) {
+                return e instanceof Villager ? Support.SUPPORTED : Support.UNSUPPORTED;
             }
 
             @Override
@@ -247,10 +260,11 @@ public final class SpecificProperties {
         });
         reg.register(new BaseProperty<Integer>("villager.experience", "Villager XP",
                 "Trade experience towards the next level.",
+                "Villagers",
                 PropertyType.NUMBER, RiskLevel.NORMAL, true) {
             @Override
-            protected boolean supports(Entity e) {
-                return e instanceof Villager;
+            public Support support(Entity e) {
+                return e instanceof Villager ? Support.SUPPORTED : Support.UNSUPPORTED;
             }
 
             @Override
@@ -276,10 +290,11 @@ public final class SpecificProperties {
         // ---- creepers ----
         reg.register(new BaseProperty<Boolean>("creeper.powered", "Charged",
                 "Lightning-struck creeper (much bigger boom).",
+                "Creepers",
                 PropertyType.BOOLEAN, RiskLevel.NORMAL, true) {
             @Override
-            protected boolean supports(Entity e) {
-                return e instanceof Creeper;
+            public Support support(Entity e) {
+                return e instanceof Creeper ? Support.SUPPORTED : Support.UNSUPPORTED;
             }
 
             @Override
@@ -304,10 +319,11 @@ public final class SpecificProperties {
         });
         reg.register(new BaseProperty<Integer>("creeper.fuse", "Fuse ticks",
                 "Countdown once ignited. Max fuse caps it.",
+                "Creepers",
                 PropertyType.NUMBER, RiskLevel.ADVANCED, true) {
             @Override
-            protected boolean supports(Entity e) {
-                return e instanceof Creeper;
+            public Support support(Entity e) {
+                return e instanceof Creeper ? Support.SUPPORTED : Support.UNSUPPORTED;
             }
 
             @Override
@@ -333,10 +349,11 @@ public final class SpecificProperties {
         // ---- sheep / colorable ----
         reg.register(new BaseProperty<String>("color", "Color",
                 "Wool/collar color where the entity supports dye colors.",
+                "Colorable entities",
                 PropertyType.ENUM, RiskLevel.NORMAL, true) {
             @Override
-            protected boolean supports(Entity e) {
-                return e instanceof Colorable;
+            public Support support(Entity e) {
+                return e instanceof Colorable ? Support.SUPPORTED : Support.UNSUPPORTED;
             }
 
             @Override
@@ -376,10 +393,11 @@ public final class SpecificProperties {
         });
         reg.register(new BaseProperty<Boolean>("sheared", "Sheared",
                 "Whether a shearable entity has been sheared.",
+                "Shearable entities",
                 PropertyType.BOOLEAN, RiskLevel.NORMAL, true) {
             @Override
-            protected boolean supports(Entity e) {
-                return e instanceof Shearable;
+            public Support support(Entity e) {
+                return e instanceof Shearable ? Support.SUPPORTED : Support.UNSUPPORTED;
             }
 
             @Override
@@ -405,10 +423,11 @@ public final class SpecificProperties {
         // ---- slime ----
         reg.register(new BaseProperty<Integer>("slime.size", "Slime size",
                 "1 = tiny, bigger = splits on death. Very large values lag.",
+                "Slimes",
                 PropertyType.NUMBER, RiskLevel.ADVANCED, true) {
             @Override
-            protected boolean supports(Entity e) {
-                return e instanceof Slime;
+            public Support support(Entity e) {
+                return e instanceof Slime ? Support.SUPPORTED : Support.UNSUPPORTED;
             }
 
             @Override
@@ -434,10 +453,11 @@ public final class SpecificProperties {
         // ---- horses ----
         reg.register(new BaseProperty<Double>("horse.jump", "Jump strength",
                 "Horse jump power, roughly 0 (none) to 2 (max legit ~1).",
+                "Horses",
                 PropertyType.NUMBER, RiskLevel.NORMAL, true) {
             @Override
-            protected boolean supports(Entity e) {
-                return e instanceof AbstractHorse;
+            public Support support(Entity e) {
+                return e instanceof AbstractHorse ? Support.SUPPORTED : Support.UNSUPPORTED;
             }
 
             @Override
@@ -462,10 +482,13 @@ public final class SpecificProperties {
         });
         reg.register(new BaseProperty<Boolean>("horse.chest", "Carrying chest",
                 "Chest storage for donkeys, mules and llamas.",
+                "Chested horses (donkeys, mules, llamas)",
                 PropertyType.BOOLEAN, RiskLevel.NORMAL, true) {
             @Override
-            protected boolean supports(Entity e) {
-                return e instanceof ChestedHorse;
+            public Support support(Entity e) {
+                // Removing a chest can destroy stored items, so this never
+                // toggles silently: the GUI routes it through the container.
+                return e instanceof ChestedHorse ? Support.SPECIAL : Support.UNSUPPORTED;
             }
 
             @Override
@@ -491,10 +514,11 @@ public final class SpecificProperties {
         // ---- wolves ----
         reg.register(new BaseProperty<Boolean>("wolf.angry", "Angry",
                 "Permanently angry wolf (red eyes, attacks).",
+                "Wolves",
                 PropertyType.BOOLEAN, RiskLevel.NORMAL, true) {
             @Override
-            protected boolean supports(Entity e) {
-                return e instanceof Wolf;
+            public Support support(Entity e) {
+                return e instanceof Wolf ? Support.SUPPORTED : Support.UNSUPPORTED;
             }
 
             @Override

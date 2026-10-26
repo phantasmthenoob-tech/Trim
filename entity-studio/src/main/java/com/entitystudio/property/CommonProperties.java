@@ -19,10 +19,11 @@ public final class CommonProperties {
         // ---- vitals ----
         reg.register(new BaseProperty<Double>("health", "Health",
                 "Current health. 0 kills most entities — confirm before zeroing.",
+                "Living entities",
                 PropertyType.NUMBER, RiskLevel.ADVANCED, true) {
             @Override
-            protected boolean supports(Entity e) {
-                return e instanceof LivingEntity;
+            public Support support(Entity e) {
+                return e instanceof LivingEntity ? Support.SUPPORTED : Support.UNSUPPORTED;
             }
 
             @Override
@@ -42,17 +43,32 @@ public final class CommonProperties {
             }
 
             @Override
+            public String failureBehavior() {
+                return "Validated against the live max health; writes clamp to max, never throw.";
+            }
+
+            @Override
             public ParseResult<Double> parse(String input) {
                 return Validators.parseDouble(input, 0, 1024, "health");
             }
         });
         reg.register(new BaseProperty<Double>("max_health", "Max health",
                 "Attribute-driven maximum health. Changing it rescales the health bar.",
+                "Living entities (requires the max-health attribute)",
                 PropertyType.NUMBER, RiskLevel.ADVANCED, true) {
             @Override
-            protected boolean supports(Entity e) {
-                return e instanceof LivingEntity l
-                        && l.getAttribute(Attribute.MAX_HEALTH) != null;
+            public Support support(Entity e) {
+                if (!(e instanceof LivingEntity l)) {
+                    return Support.UNSUPPORTED;
+                }
+                try {
+                    return l.getAttribute(Attribute.MAX_HEALTH) != null ? Support.SUPPORTED
+                            : Support.UNAVAILABLE;
+                } catch (LinkageError | RuntimeException ex) {
+                    // Attribute API itself unavailable (headless/unit-test runtimes,
+                    // exotic forks): degrade instead of breaking the whole page.
+                    return Support.UNAVAILABLE;
+                }
             }
 
             @Override
@@ -82,10 +98,11 @@ public final class CommonProperties {
         });
         reg.register(new BaseProperty<Double>("absorption", "Absorption",
                 "Yellow bonus hearts (e.g. from golden apples).",
+                "Living entities",
                 PropertyType.NUMBER, RiskLevel.NORMAL, true) {
             @Override
-            protected boolean supports(Entity e) {
-                return e instanceof LivingEntity;
+            public Support support(Entity e) {
+                return e instanceof LivingEntity ? Support.SUPPORTED : Support.UNSUPPORTED;
             }
 
             @Override
@@ -110,10 +127,11 @@ public final class CommonProperties {
         });
         reg.register(new BaseProperty<Integer>("fire_ticks", "Fire ticks",
                 "Ticks the entity stays on fire. Negative values grant fire immunity time.",
+                "All entities",
                 PropertyType.NUMBER, RiskLevel.NORMAL, true) {
             @Override
-            protected boolean supports(Entity e) {
-                return true;
+            public Support support(Entity e) {
+                return Support.SUPPORTED;
             }
 
             @Override
@@ -138,10 +156,11 @@ public final class CommonProperties {
         });
         reg.register(new BaseProperty<Integer>("freeze_ticks", "Freeze ticks",
                 "Powder-snow freezing progress. Max depends on the entity.",
+                "All entities",
                 PropertyType.NUMBER, RiskLevel.NORMAL, true) {
             @Override
-            protected boolean supports(Entity e) {
-                return true;
+            public Support support(Entity e) {
+                return Support.SUPPORTED;
             }
 
             @Override
@@ -166,10 +185,11 @@ public final class CommonProperties {
         });
         reg.register(new BaseProperty<Integer>("air", "Remaining air",
                 "Drowning timer for applicable entities.",
+                "Living entities",
                 PropertyType.NUMBER, RiskLevel.NORMAL, true) {
             @Override
-            protected boolean supports(Entity e) {
-                return e instanceof LivingEntity;
+            public Support support(Entity e) {
+                return e instanceof LivingEntity ? Support.SUPPORTED : Support.UNSUPPORTED;
             }
 
             @Override
@@ -195,10 +215,11 @@ public final class CommonProperties {
         });
         reg.register(new BaseProperty<Boolean>("invulnerable", "Invulnerable",
                 "Ignores all damage. Boss arenas love this; survival balance does not.",
+                "All entities",
                 PropertyType.BOOLEAN, RiskLevel.ADVANCED, true) {
             @Override
-            protected boolean supports(Entity e) {
-                return true;
+            public Support support(Entity e) {
+                return Support.SUPPORTED;
             }
 
             @Override
@@ -224,10 +245,11 @@ public final class CommonProperties {
         // ---- movement / physical ----
         reg.register(new BaseProperty<Boolean>("gravity", "Gravity",
                 "Off = floats in place (still takes knockback and teleports).",
+                "All entities",
                 PropertyType.BOOLEAN, RiskLevel.NORMAL, true) {
             @Override
-            protected boolean supports(Entity e) {
-                return true;
+            public Support support(Entity e) {
+                return Support.SUPPORTED;
             }
 
             @Override
@@ -252,10 +274,11 @@ public final class CommonProperties {
         });
         reg.register(new BaseProperty<Boolean>("silent", "Silent",
                 "Mutes all sounds this entity makes.",
+                "All entities",
                 PropertyType.BOOLEAN, RiskLevel.NORMAL, true) {
             @Override
-            protected boolean supports(Entity e) {
-                return true;
+            public Support support(Entity e) {
+                return Support.SUPPORTED;
             }
 
             @Override
@@ -280,10 +303,11 @@ public final class CommonProperties {
         });
         reg.register(new BaseProperty<Boolean>("persistent", "Persistent",
                 "Off = may despawn when far away (vanilla rules still decide).",
+                "All entities",
                 PropertyType.BOOLEAN, RiskLevel.NORMAL, true) {
             @Override
-            protected boolean supports(Entity e) {
-                return true;
+            public Support support(Entity e) {
+                return Support.SUPPORTED;
             }
 
             @Override
@@ -308,10 +332,11 @@ public final class CommonProperties {
         });
         reg.register(new BaseProperty<Boolean>("ai", "AI enabled",
                 "Off = stands still (gravity, fire, knockback still apply).",
+                "Living entities",
                 PropertyType.BOOLEAN, RiskLevel.ADVANCED, true) {
             @Override
-            protected boolean supports(Entity e) {
-                return e instanceof LivingEntity;
+            public Support support(Entity e) {
+                return e instanceof LivingEntity ? Support.SUPPORTED : Support.UNSUPPORTED;
             }
 
             @Override
@@ -336,10 +361,11 @@ public final class CommonProperties {
         });
         reg.register(new BaseProperty<Boolean>("aware", "Aware",
                 "Mob AI awareness. Unaware mobs don't notice targets or paths.",
+                "Mobs",
                 PropertyType.BOOLEAN, RiskLevel.ADVANCED, true) {
             @Override
-            protected boolean supports(Entity e) {
-                return e instanceof Mob;
+            public Support support(Entity e) {
+                return e instanceof Mob ? Support.SUPPORTED : Support.UNSUPPORTED;
             }
 
             @Override
@@ -365,10 +391,11 @@ public final class CommonProperties {
         // ---- presentation ----
         reg.register(new BaseProperty<String>("custom_name", "Custom name",
                 "Nameplate text. Supports legacy & codes; visibility is separate.",
+                "All entities",
                 PropertyType.TEXT, RiskLevel.NORMAL, true) {
             @Override
-            protected boolean supports(Entity e) {
-                return true;
+            public Support support(Entity e) {
+                return Support.SUPPORTED;
             }
 
             @Override
@@ -397,10 +424,11 @@ public final class CommonProperties {
         });
         reg.register(new BaseProperty<Boolean>("name_visible", "Name visible",
                 "Always show the nameplate, even without looking at the entity.",
+                "All entities",
                 PropertyType.BOOLEAN, RiskLevel.NORMAL, true) {
             @Override
-            protected boolean supports(Entity e) {
-                return true;
+            public Support support(Entity e) {
+                return Support.SUPPORTED;
             }
 
             @Override
@@ -425,10 +453,11 @@ public final class CommonProperties {
         });
         reg.register(new BaseProperty<Boolean>("glowing", "Glowing",
                 "Outline visible through walls (team colors may override the color).",
+                "All entities",
                 PropertyType.BOOLEAN, RiskLevel.NORMAL, true) {
             @Override
-            protected boolean supports(Entity e) {
-                return true;
+            public Support support(Entity e) {
+                return Support.SUPPORTED;
             }
 
             @Override
@@ -449,6 +478,65 @@ public final class CommonProperties {
             @Override
             public ParseResult<Boolean> parse(String input) {
                 return Validators.parseBoolean(input);
+            }
+        });
+        // ---- read-only identity facts (no setter exists by design) ----
+        reg.register(new BaseProperty<String>("entity.uuid", "Entity UUID",
+                "Stable server-assigned identity. Shown for admin/copy use.",
+                "All entities",
+                PropertyType.TEXT, RiskLevel.NORMAL, true) {
+            @Override
+            public Support support(Entity e) {
+                return Support.READ_ONLY;
+            }
+
+            @Override
+            public String read(Entity e) {
+                return e.getUniqueId().toString();
+            }
+
+            @Override
+            public ValidationResult validate(Entity e, String v) {
+                return ValidationResult.fail("Entity UUID is read-only.");
+            }
+
+            @Override
+            public void write(Entity e, String v) {
+                throw new UnsupportedOperationException("Entity UUID is read-only.");
+            }
+
+            @Override
+            public ParseResult<String> parse(String input) {
+                return ParseResult.fail("Entity UUID is read-only.");
+            }
+        });
+        reg.register(new BaseProperty<String>("entity.type", "Entity type",
+                "Bukkit entity type name. Shown for admin/reference use.",
+                "All entities",
+                PropertyType.TEXT, RiskLevel.NORMAL, true) {
+            @Override
+            public Support support(Entity e) {
+                return Support.READ_ONLY;
+            }
+
+            @Override
+            public String read(Entity e) {
+                return e.getType().name().toLowerCase(java.util.Locale.ROOT);
+            }
+
+            @Override
+            public ValidationResult validate(Entity e, String v) {
+                return ValidationResult.fail("Entity type is read-only.");
+            }
+
+            @Override
+            public void write(Entity e, String v) {
+                throw new UnsupportedOperationException("Entity type is read-only.");
+            }
+
+            @Override
+            public ParseResult<String> parse(String input) {
+                return ParseResult.fail("Entity type is read-only.");
             }
         });
     }

@@ -8,22 +8,25 @@ public abstract class BaseProperty<T> implements EntityProperty<T> {
     private final String id;
     private final String displayName;
     private final String description;
+    private final String scope;
     private final PropertyType type;
     private final RiskLevel risk;
     private final boolean reversible;
 
-    protected BaseProperty(String id, String displayName, String description,
+    protected BaseProperty(String id, String displayName, String description, String scope,
             PropertyType type, RiskLevel risk, boolean reversible) {
         this.id = id;
         this.displayName = displayName;
         this.description = description;
+        this.scope = scope;
         this.type = type;
         this.risk = risk;
         this.reversible = reversible;
     }
 
-    /** Entity scope gate (also drives the honesty badge in the GUI). */
-    protected abstract boolean supports(Entity entity);
+    /** Entity support gate returning an explicit state (drives GUI badges and
+     * write-path eligibility — never a silent boolean). */
+    public abstract Support support(Entity entity);
 
     @Override
     public String id() {
@@ -41,6 +44,11 @@ public abstract class BaseProperty<T> implements EntityProperty<T> {
     }
 
     @Override
+    public String scope() {
+        return scope;
+    }
+
+    @Override
     public PropertyType type() {
         return type;
     }
@@ -53,11 +61,6 @@ public abstract class BaseProperty<T> implements EntityProperty<T> {
     @Override
     public boolean reversible() {
         return reversible;
-    }
-
-    @Override
-    public Support support(Entity entity) {
-        return supports(entity) ? Support.SUPPORTED : Support.UNSUPPORTED;
     }
 
     @Override

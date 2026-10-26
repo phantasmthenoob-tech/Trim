@@ -29,6 +29,11 @@ public class PropertyRegistry {
         return properties.get(id);
     }
 
+    /** All registered properties (for metadata validation and docs). */
+    public java.util.Collection<EntityProperty<?>> all() {
+        return java.util.Collections.unmodifiableCollection(properties.values());
+    }
+
     /** All properties with a real (non-UNSUPPORTED) status for this entity. */
     public List<EntityProperty<?>> listFor(Entity entity) {
         List<EntityProperty<?>> out = new ArrayList<>();
@@ -65,9 +70,14 @@ public class PropertyRegistry {
         if (!authorizer.test(permissionNode)) {
             return "Missing permission " + permissionNode + ".";
         }
-        if (prop.support(entity) == EntityProperty.Support.UNSUPPORTED) {
-            return "Property '" + prop.id() + "' is not supported by "
-                    + entity.getType().name().toLowerCase() + ".";
+        EntityProperty.Support support = prop.support(entity);
+        if (!support.writable()) {
+            // getType() is never null on a live server entity; the null branch
+            // only exists so headless/unit-test doubles cannot NPE here.
+            String type = entity.getType() == null ? "this entity"
+                    : entity.getType().name().toLowerCase();
+            return "Property '" + prop.id() + "' is " + support.name().toLowerCase()
+                    + " for " + type + " — not writable here.";
         }
         ValidationResult vr = prop.validate(entity, value);
         if (!vr.ok()) {

@@ -172,7 +172,7 @@ public class SnapshotService {
             if (props != null) {
                 for (String id : props.getKeys(false)) {
                     EntityProperty prop = plugin.properties().byId(id);
-                    if (prop == null || prop.support(entity) == EntityProperty.Support.UNSUPPORTED) {
+                    if (prop == null || !prop.support(entity).writable()) {
                         out.add(new PreviewEntry(id, "—", "(unsupported here, skipped)"));
                         continue;
                     }
@@ -241,7 +241,7 @@ public class SnapshotService {
             if (props != null) {
                 for (String id : props.getKeys(false)) {
                     EntityProperty prop = plugin.properties().byId(id);
-                    if (prop == null || prop.support(entity) == EntityProperty.Support.UNSUPPORTED) {
+                    if (prop == null || !prop.support(entity).writable()) {
                         skipped++;
                         continue;
                     }

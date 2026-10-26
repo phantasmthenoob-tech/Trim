@@ -339,23 +339,43 @@ public class StudioGUI implements Listener {
             case ENUM -> Material.BOOK;
             case ENTITY_REF -> Material.LEAD;
         };
+        EntityProperty.Support support = prop.support(entity);
         List<String> lore = new ArrayList<>();
         lore.add("<gray>" + prop.description());
         lore.add("<gray>Value: <aqua>" + escape(String.valueOf(current)));
         lore.add("<gray>Type: <white>" + prop.type().name().toLowerCase()
                 + "  <gray>Risk: " + riskColor(prop.risk()) + prop.risk().name().toLowerCase());
         lore.add(prop.reversible() ? "<green>Reversible" : "<red>Not reversible");
-        boolean canWrite = true; // checked at click time with a real message
-        if (prop.type() == EntityProperty.PropertyType.BOOLEAN) {
-            lore.add("<yellow>Click to toggle");
-        } else {
-            lore.add("<yellow>Click to type a new value");
-        }
-        if (!canWrite) {
-            lore.add("<red>No permission");
-        }
+        lore.add("<dark_gray>Scope: " + escape(prop.scope()) + " · " + supportBadge(support));
+        lore.add(supportHint(prop, support));
         return named(icon, "<white>" + prop.displayName() + " <dark_gray>(" + prop.id() + ")",
                 lore.toArray(new String[0]));
+    }
+
+    private static String supportBadge(EntityProperty.Support support) {
+        return switch (support) {
+            case SUPPORTED -> "<green>Supported";
+            case PARTIAL -> "<yellow>Partially supported";
+            case UNAVAILABLE -> "<red>Temporarily unavailable";
+            case READ_ONLY -> "<gray>Read-only";
+            case SPECIAL -> "<aqua>Special handling";
+            case UNSUPPORTED -> "<dark_gray>Unsupported";
+        };
+    }
+
+    private static String supportHint(EntityProperty<?> prop,
+            EntityProperty.Support support) {
+        if (support.writable()) {
+            return prop.type() == EntityProperty.PropertyType.BOOLEAN
+                    ? "<yellow>Click to toggle"
+                    : "<yellow>Click to type a new value";
+        }
+        return switch (support) {
+            case READ_ONLY -> "<gray>View only — no setter exists";
+            case UNAVAILABLE -> "<gray>Not available for this entity right now";
+            case SPECIAL -> "<aqua>Click: opens its dedicated editor";
+            default -> "<dark_gray>Not editable here";
+        };
     }
 
     private String riskColor(EntityProperty.RiskLevel risk) {
@@ -1461,6 +1481,36 @@ public class StudioGUI implements Listener {
             return;
         }
         EntityProperty prop = all.get(slot);
+        EntityProperty.Support support = prop.support(entity);
+        if (!support.writable()) {
+            // Never pretend an unsupported control works: read-only values are
+            // shown, special ones route to their dedicated flow.
+            switch (support) {
+                case READ_ONLY -> {
+                    Object v;
+                    try {
+                        v = prop.read(entity);
+                    } catch (Exception e) {
+                        v = "<unreadable>";
+                    }
+                    plugin.send(player, "<gray>" + prop.displayName() + ": <white>"
+                            + escape(String.valueOf(v)) + " <dark_gray>(read-only)");
+                }
+                case SPECIAL -> {
+                    if ("horse.chest".equals(prop.id()) && entity instanceof InventoryHolder) {
+                        plugin.send(player,
+                                "<aqua>Chest changes go through the container — withdrawing first avoids losing items.");
+                        openContainerMirror(player, entity);
+                    } else {
+                        plugin.send(player, "<aqua>" + prop.displayName()
+                                + " needs its dedicated editor; it cannot be typed here.");
+                    }
+                }
+                default -> plugin.send(player, "<gray>" + prop.displayName()
+                        + " is not available for this entity right now.");
+            }
+            return;
+        }
         if (!plugin.permitted(player, StudioPermissions.DATA_EDIT)) {
             plugin.send(player, plugin.msg("no-permission"));
             return;
