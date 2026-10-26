@@ -20,11 +20,14 @@ real entity change. No `/data` memorization.
 
 - **Dashboard** — name/type/UUID/coords, health, AI + target state, capabilities,
   warnings, property search, entity removal (confirm, recorded).
-- **Properties** — ~25 typed properties (health, max health, fire/freeze/air,
-  invulnerable, gravity, silent, persistent, AI, awareness, name/visibility,
-  glow, age, taming, villager profession/level/XP, creeper fuse, colors,
-  slime size, horse jump/chest, wolf anger) with validation, risk badges and
-  undo. Click booleans to toggle; type values in chat.
+- **Properties** — ~90 typed properties: vitals/combat windows (health, max
+  health, absorption, no-damage ticks, last damage, pickup/collide/glide/swim
+  flags), age/taming/breeding, villagers, creepers, armor stands, wolves/cats/
+  foxes/parrots/axolotls/mooshrooms/goats/bees/endermen, steerable saddles,
+  dropped items, boats, primed TNT, falling blocks, explosives, projectiles —
+  with validation, risk badges and undo. Click booleans to toggle; type
+  values in chat. See `docs/property-support.md` for the exact list and
+  deliberate exclusions.
 - **Equipment** — live swap editing of all 6 slots, item editor (rename, lore,
   amount, damage, enchants), drop-chance cycler for mobs, clear-all with
   snapshot + confirm.
@@ -42,12 +45,16 @@ real entity change. No `/data` memorization.
   honest "cannot be undone" for the rest.
 - **Snapshots & presets** — save, restore, preview exact field changes, apply
   properties/equipment/behavior selectively.
-- **Inventories** — player inventory + ender chest and mount/container
-  inventories open **live** through a size-safe paged mirror (llama 8-slots
-  and friends can't crash it). Entities with no inventory of their own —
-  cows, pigs, creepers — get a persistent 27-slot plugin **stash**
+- **Inventories** — player inventory + ender chest open **live** (viewing the
+  hub needs `inventory.view`, opening the live views needs `inventory.edit` —
+  the vanilla view has no undo, so view-only staff can't reach it) and
+  mount/container inventories open through a size-safe paged mirror (llama
+  8-slots and friends can't crash it). Entities with no inventory of their
+  own — cows, pigs, creepers — get a persistent 27-slot plugin **stash**
   (`stashes.yml`, kept across restarts, dropped if Studio removes the
-  entity). Offline player editing is explicitly unsupported.
+  entity). Withdraw-all previews the stack count and needs confirm, with
+  undo; snapshot/preset equipment + behavior restores record undo entries.
+  Offline player editing is explicitly unsupported.
 
 ## Activation & owner override (read this)
 

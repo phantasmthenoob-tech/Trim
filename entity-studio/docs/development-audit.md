@@ -54,8 +54,9 @@ apply exists); isolated internal-NBT writes (deliberately out — public API
 only); offline player editing (explicitly unsupported, documented).
 
 **Unsafe (remaining gaps, not yet fixed):**
-1. Snapshot/preset equipment restore writes slots with no history record —
-   silent and non-undoable. Should record or label.
+1. ~~Snapshot/preset equipment restore writes slots with no history record~~ —
+   FIXED in §10: `applyData` snapshots the loadout + behavior flags and
+   records undoable entries.
 2. `warnings()` takes an unused `caps` param — dead weight, tiny cleanup.
 3. Retaliation handler scans all managed records per damage event — fine
    now, revisit if managed sets grow large.
@@ -151,13 +152,67 @@ client, double-inventory concurrency, and feel of paginated lists. Headless
 proves routing + math only — `gradle build` green, 78/78 tests pass
 (74 existing + 4 GuiNav).
 
+## 10. Prompt-6 inventory audit (2026-10-26) — equipment/item/player/mount/container
+
+Traced: equipment swap, drop-chance cycle, clear-all, item editor
+(rename/lore/amount/damage/enchants), player-inv + ender hub, mount/native
+inventories, container withdraw/deposit/withdraw-all, stash persistence,
+snapshot/preset equipment + behavior restore.
+
+**Slot mappings (verified):** labels 10-15 with items exactly +9 (19-24),
+matching `slotStack`/`setSlot` order 0-5 (main, off, helm, chest, legs,
+boots); container content rows 0-44 with nav bar 45-53; mapping now pinned
+headless by `InventoryOps.equipIndexForSlot`/`realSlotFor` (`InventoryOpsTest`, 6 tests).
+Display copies are always `clone()`d; clicks/drags are cancelled first, so
+fake-GUI items can never be taken and player items never leak in.
+
+**Fixed bugs:**
+1. **View-permission live edit (real hole):** the hub needed only
+   `inventory.view` to open the LIVE player inventory/ender chest, whose
+   vanilla view edits with no Studio undo. Live opens now need
+   `inventory.edit`; view-only staff stop at the hub.
+2. **P2 snapshot/preset silent restore (from §5.1):** equipment + behavior
+   restores wrote slots/flags with no history. `applyData` now snapshots
+   the 6-slot loadout and profile + friendly-fire flag first and records
+   one undoable entry each when anything actually changes.
+3. **Misleading damage feedback:** typing damage for a non-damageable item
+   recorded nothing yet answered "Damage → x done". Now refuses honestly
+   (`not damageable`) with no history entry.
+4. **Silent non-mob label clicks:** label rows on non-mobs did nothing;
+   now explain drop chances are mobs-only and point at the swap action.
+
+**Checked and kept:** withdraw-one/two-phase put-back on full player
+inventories (no dup, no loss); withdraw-all overflow re-added then
+undo-drops excess naturally instead of deleting; deposit clones the offer
+and explicitly sets the clicked slot to the leftover under a cancelled
+event (no double-move); stash `saveOne` runs on every mirror open (which
+follows every mutation); amount/damage/enchant clamps enforced
+(`clampAmount` floors at 1 so zero-amount deletion is impossible;
+enchants 1-255 via `addUnsafeEnchantment`, labeled as unsafe-admin in the
+GUI); clear-equipment snapshots + confirms; `breed` stays
+`reversible=false` with adult validation; ender/player live views are
+viewing-hub + edit-gated live, never offline (no persistence mechanism
+attempted — `edit` resolves online players only).
+
+**Headless-tested:** `InventoryOps` (slot mapping, amount/damage clamps,
+drop-chance wrap, page→real-slot, deposit take math). Live `ItemStack`
+behavior (stacking, durability, enchant conflicts, holder inventories,
+ender chests, two-admin races, stash reload across restarts) needs the P1
+server and is NOT claimed here.
+
+**Server-only verification required:** in-game swap/withdraw/deposit round
+trips, full-player overflow paths, ender-chest live edits, llama/horse/
+hopper mirrors, stash file reload after restart, two admins racing one
+container, and confirm/undo feel. `gradle build` green, 89/89 tests pass
+(83 prior + 6 `InventoryOpsTest`).
+
 ## 8. Prioritized blockers for next stages
 
 1. **P1 — live-server verification.** Headless green is not proof on a
    server: shift-click entry, container mirror on llamas/horses/hoppers,
    guard retaliation vs arrows, anchors across restarts, two-admin
    concurrency. Needs a Paper 1.21.11 test server (forbidden here).
-2. **P2 — snapshot equipment restore without history.** See §5.1.
+2. **P2 — snapshot equipment restore without history.** FIXED in §10.
 3. **P3 — deep preset merging** (still the major incomplete feature).
 4. **P4 — dependency drift.** Re-check the pin when targeting newer 1.21.x;
    never float it.

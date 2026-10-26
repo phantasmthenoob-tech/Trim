@@ -2,7 +2,9 @@ package com.entitystudio.snapshot;
 
 import com.entitystudio.EntityStudioPlugin;
 import com.entitystudio.behavior.ManagedRecord;
+import com.entitystudio.history.EditRecord;
 import com.entitystudio.property.EntityProperty;
+import org.bukkit.Bukkit;
 import org.bukkit.configuration.ConfigurationSection;
 import org.bukkit.configuration.file.YamlConfiguration;
 import org.bukkit.entity.Entity;
@@ -266,13 +268,20 @@ public class SnapshotService {
             ConfigurationSection eq = root.getConfigurationSection("equipment");
             if (eq != null && plugin.permitted(actor,
                     com.entitystudio.permission.StudioPermissions.INV_EDIT)) {
+                // Snapshot first: bulk replacement is only safe when undoable.
+                ItemStack[] before = snapshotLoadout(living);
                 EntityEquipment slots = living.getEquipment();
-                changed += setSlot(eq, "main-hand", slots::setItemInMainHand) ? 1 : 0;
-                changed += setSlot(eq, "off-hand", slots::setItemInOffHand) ? 1 : 0;
-                changed += setSlot(eq, "helmet", slots::setHelmet) ? 1 : 0;
-                changed += setSlot(eq, "chestplate", slots::setChestplate) ? 1 : 0;
-                changed += setSlot(eq, "leggings", slots::setLeggings) ? 1 : 0;
-                changed += setSlot(eq, "boots", slots::setBoots) ? 1 : 0;
+                int eqChanged = 0;
+                eqChanged += setSlot(eq, "main-hand", slots::setItemInMainHand) ? 1 : 0;
+                eqChanged += setSlot(eq, "off-hand", slots::setItemInOffHand) ? 1 : 0;
+                eqChanged += setSlot(eq, "helmet", slots::setHelmet) ? 1 : 0;
+                eqChanged += setSlot(eq, "chestplate", slots::setChestplate) ? 1 : 0;
+                eqChanged += setSlot(eq, "leggings", slots::setLeggings) ? 1 : 0;
+                eqChanged += setSlot(eq, "boots", slots::setBoots) ? 1 : 0;
+                changed += eqChanged;
+                if (eqChanged > 0) {
+                    recordEquipmentRestore(actor, entity, before);
+                }
             }
         }
         if (sections.contains(Section.BEHAVIOR) && plugin.permitted(actor,
@@ -280,19 +289,104 @@ public class SnapshotService {
             ConfigurationSection b = root.getConfigurationSection("behavior");
             if (b != null) {
                 ManagedRecord r = plugin.allegiance().getOrCreate(entity);
+                ManagedRecord.Profile oldProfile = r.profile();
+                boolean oldFriendlyFire = r.friendlyFireProtect();
+                boolean behaviorChanged = false;
                 try {
-                    r.profile(ManagedRecord.Profile.valueOf(b.getString("profile", "CUSTOM")));
+                    ManagedRecord.Profile next =
+                            ManagedRecord.Profile.valueOf(b.getString("profile", "CUSTOM"));
+                    if (next != oldProfile) {
+                        r.profile(next);
+                        behaviorChanged = true;
+                    }
                     changed++;
                 } catch (IllegalArgumentException e) {
                     skipped++;
                 }
                 if (b.isSet("friendly-fire")) {
-                    r.friendlyFireProtect(b.getBoolean("friendly-fire", true));
+                    boolean nextFf = b.getBoolean("friendly-fire", true);
+                    if (nextFf != oldFriendlyFire) {
+                        r.friendlyFireProtect(nextFf);
+                        behaviorChanged = true;
+                    }
                     changed++;
+                }
+                if (behaviorChanged) {
+                    recordBehaviorRestore(actor, entity, oldProfile, oldFriendlyFire);
                 }
             }
         }
         return new int[] { changed, skipped };
+    }
+
+    private ItemStack[] snapshotLoadout(LivingEntity living) {
+        ItemStack[] snap = new ItemStack[6];
+        EntityEquipment eq = living.getEquipment();
+        if (eq == null) {
+            return snap;
+        }
+        ItemStack[] live = { eq.getItemInMainHand(), eq.getItemInOffHand(), eq.getHelmet(),
+                eq.getChestplate(), eq.getLeggings(), eq.getBoots() };
+        for (int i = 0; i < 6; i++) {
+            snap[i] = live[i] == null || live[i].getType().isAir() ? null : live[i].clone();
+        }
+        return snap;
+    }
+
+    /** Single undoable record for a bulk equipment replacement. */
+    private void recordEquipmentRestore(org.bukkit.entity.Player actor, Entity entity,
+            ItemStack[] before) {
+        ItemStack[] snap = new ItemStack[6];
+        for (int i = 0; i < 6; i++) {
+            snap[i] = before[i] == null ? null : before[i].clone();
+        }
+        plugin.history().record(new EditRecord(actor.getUniqueId(), entity.getUniqueId(),
+                entity.getType().name(), "Restore equipment set",
+                describeLoadout(snap), "preset loadout", true, "ADVANCED", () -> {
+                    Entity e = Bukkit.getEntity(entity.getUniqueId());
+                    if (!(e instanceof LivingEntity l) || !e.isValid() || e.isDead()) {
+                        throw new IllegalStateException("Entity is gone.");
+                    }
+                    EntityEquipment eq = l.getEquipment();
+                    if (eq == null) {
+                        throw new IllegalStateException("Entity has no equipment.");
+                    }
+                    eq.setItemInMainHand(snap[0] == null ? null : snap[0].clone());
+                    eq.setItemInOffHand(snap[1] == null ? null : snap[1].clone());
+                    eq.setHelmet(snap[2] == null ? null : snap[2].clone());
+                    eq.setChestplate(snap[3] == null ? null : snap[3].clone());
+                    eq.setLeggings(snap[4] == null ? null : snap[4].clone());
+                    eq.setBoots(snap[5] == null ? null : snap[5].clone());
+                }));
+    }
+
+    private String describeLoadout(ItemStack[] snap) {
+        String[] names = { "hand", "off", "helm", "chest", "legs", "boots" };
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < snap.length; i++) {
+            if (i > 0) {
+                sb.append(", ");
+            }
+            sb.append(names[i]).append(":")
+                    .append(snap[i] == null ? "empty" : snap[i].getType().name().toLowerCase());
+        }
+        return sb.toString();
+    }
+
+    /** Single undoable record for a behavior-profile restore. */
+    private void recordBehaviorRestore(org.bukkit.entity.Player actor, Entity entity,
+            ManagedRecord.Profile oldProfile, boolean oldFriendlyFire) {
+        plugin.history().record(new EditRecord(actor.getUniqueId(), entity.getUniqueId(),
+                entity.getType().name(), "Restore behavior profile",
+                oldProfile.name(), "preset profile", true, "NORMAL", () -> {
+                    Entity e = Bukkit.getEntity(entity.getUniqueId());
+                    if (e == null || !e.isValid() || e.isDead()) {
+                        throw new IllegalStateException("Entity is gone.");
+                    }
+                    ManagedRecord r = plugin.allegiance().getOrCreate(e);
+                    r.profile(oldProfile);
+                    r.friendlyFireProtect(oldFriendlyFire);
+                }));
     }
 
     private boolean setSlot(ConfigurationSection eq, String key,

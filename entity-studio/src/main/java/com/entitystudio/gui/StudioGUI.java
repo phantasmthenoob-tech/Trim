@@ -795,11 +795,13 @@ public class StudioGUI implements Listener {
                     (p, e) -> containerWithdrawAll(p, e, backingInventory(e), page));
             return;
         }
-        if (slot < 0 || slot >= ContainerPages.PAGE_CONTENT) {
+        // InventoryOps pins this mapping headless; the live size check below
+        // guards against a mirror that went stale mid-click.
+        int realSlot = InventoryOps.realSlotFor(page, real.getSize(), slot);
+        if (realSlot < 0 || realSlot >= real.getSize()) {
             return;
         }
-        containerWithdrawOne(player, entity, real, page,
-                ContainerPages.startIndex(page, real.getSize()) + slot);
+        containerWithdrawOne(player, entity, real, page, realSlot);
     }
 
     private void containerWithdrawOne(Player player, Entity entity, Inventory real, int page,
@@ -1139,7 +1141,8 @@ public class StudioGUI implements Listener {
         inv.setItem(14, named(Material.ANVIL, "<white>Damage: <aqua>" + dmg,
                 "<yellow>Click to type (0 = repaired)"));
         inv.setItem(15, named(Material.ENCHANTED_BOOK, "<white>Add enchant",
-                "<gray>Format: name:level (e.g. sharpness:5)", "<yellow>Click to type"));
+                "<gray>Format: name:level (e.g. sharpness:5)",
+                "<gray>Unsafe levels/combos allowed (admin tool)", "<yellow>Click to type"));
         inv.setItem(16, named(Material.MILK_BUCKET, "<white>Clear enchants",
                 "<yellow>Click to clear"));
         inv.setItem(0, helpItem("Edits apply to the live equipment slot.",
@@ -1851,18 +1854,25 @@ public class StudioGUI implements Listener {
                     });
             return;
         }
-        // item rows: EQUIP_SLOTS[i] = label, EQUIP_SLOTS[i]+9 = item
-        for (int i = 0; i < 6; i++) {
-            if (slot == EQUIP_SLOTS[i] + 9) {
-                if (right) {
-                    openItemEditor(player, entity, i);
-                } else {
-                    swapEquipmentSlot(player, entity, i);
-                }
-                return;
+        // item rows: EQUIP_SLOTS[i] = label, EQUIP_SLOTS[i]+9 = item.
+        // Mapping lives in InventoryOps so headless tests pin it.
+        int equipIdx = InventoryOps.equipIndexForSlot(slot);
+        if (equipIdx >= 0) {
+            if (right) {
+                openItemEditor(player, entity, equipIdx);
+            } else {
+                swapEquipmentSlot(player, entity, equipIdx);
             }
-            if (slot == EQUIP_SLOTS[i] && entity instanceof Mob) {
-                cycleDropChance(player, (Mob) entity, i);
+            return;
+        }
+        for (int i = 0; i < 6; i++) {
+            if (slot == EQUIP_SLOTS[i]) {
+                if (entity instanceof Mob) {
+                    cycleDropChance(player, (Mob) entity, i);
+                } else {
+                    plugin.send(player,
+                            "<gray>Drop chances apply to mobs only — left-click the item to swap it.");
+                }
                 return;
             }
         }
@@ -1956,7 +1966,7 @@ public class StudioGUI implements Listener {
             case 5 -> eq.getBootsDropChance();
             default -> 0;
         };
-        float next = cur >= 1.0f ? 0f : Math.round((cur + 0.25f) * 100) / 100f;
+        float next = InventoryOps.nextDropChance(cur);
         String label = "Drop chance: " + EQUIP_NAMES[idx];
         String old = String.valueOf(cur);
         switch (idx) {
@@ -2539,8 +2549,8 @@ public class StudioGUI implements Listener {
                 }
                 int delta = right ? -1 : 1;
                 ItemStack before = stack.clone();
-                stack.setAmount(Math.max(1, Math.min(stack.getMaxStackSize(),
-                        stack.getAmount() + delta)));
+                stack.setAmount(InventoryOps.clampAmount(stack.getAmount() + delta,
+                        stack.getMaxStackSize()));
                 setSlot(living, idx, stack);
                 recordItem(player, entity, idx, before, stack, "Amount → " + stack.getAmount());
                 openItemEditor(player, entity, idx);
@@ -2886,11 +2896,22 @@ public class StudioGUI implements Listener {
             player.closeInventory();
             return;
         }
-        if (slot == 11 && plugin.permitted(player, StudioPermissions.INV_VIEW)) {
+        // Opening the LIVE inventory/ender chest grants full editing through
+        // the vanilla view (no Studio undo), so it needs INV_EDIT — INV_VIEW
+        // alone only reaches this hub page.
+        if (slot == 11) {
+            if (!plugin.permitted(player, StudioPermissions.INV_EDIT)) {
+                plugin.send(player, plugin.msg("no-permission"));
+                return;
+            }
             player.openInventory(target.getInventory());
             return;
         }
-        if (slot == 13 && plugin.permitted(player, StudioPermissions.INV_VIEW)) {
+        if (slot == 13) {
+            if (!plugin.permitted(player, StudioPermissions.INV_EDIT)) {
+                plugin.send(player, plugin.msg("no-permission"));
+                return;
+            }
             player.openInventory(target.getEnderChest());
         }
     }
@@ -3191,7 +3212,7 @@ public class StudioGUI implements Listener {
                 }
                 mutateSlot(player, entity, idx, stack -> {
                     if (stack != null) {
-                        stack.setAmount(Math.max(1, Math.min(stack.getMaxStackSize(), v)));
+                        stack.setAmount(InventoryOps.clampAmount(v, stack.getMaxStackSize()));
                     }
                 }, "Amount → " + v);
             }
@@ -3205,10 +3226,20 @@ public class StudioGUI implements Listener {
                     return;
                 }
                 final int dmg = Math.max(0, v);
+                if (!(entity instanceof LivingEntity dmgLiving
+                        && slotStack(dmgLiving, Integer.parseInt(req.data())) != null
+                        && slotStack(dmgLiving, Integer.parseInt(req.data()))
+                                .getItemMeta() instanceof org.bukkit.inventory.meta.Damageable)) {
+                    // Refuse honestly instead of recording a no-op "Damage → x done".
+                    plugin.send(player, "<red>That item cannot take damage (not damageable).");
+                    openItemEditor(player, entity, Integer.parseInt(req.data()));
+                    return;
+                }
                 mutateSlot(player, entity, Integer.parseInt(req.data()), stack -> {
                     if (stack != null
                             && stack.getItemMeta() instanceof org.bukkit.inventory.meta.Damageable d) {
-                        d.setDamage(Math.min(dmg, stack.getType().getMaxDurability()));
+                        d.setDamage(InventoryOps.clampDamage(dmg,
+                                stack.getType().getMaxDurability()));
                         stack.setItemMeta(d);
                     }
                 }, "Damage → " + dmg);
