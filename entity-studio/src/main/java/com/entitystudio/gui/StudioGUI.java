@@ -2453,16 +2453,12 @@ public class StudioGUI implements Listener {
         player.closeInventory();
         pending.put(player.getUniqueId(), new PendingInput(kind, entityUuid, data));
         plugin.send(player, prompt);
-        plugin.send(player, plugin.msg("type-cancel-hint"));
-        Bukkit.getScheduler().runTaskLater(plugin, () -> {
-            if (pending.remove(player.getUniqueId()) != null && player.isOnline()) {
-                plugin.send(player, "<gray>Input expired.");
-                Entity e = entityUuid == null ? null : Bukkit.getEntity(entityUuid);
-                if (e != null) {
-                    openDashboard(player, e);
+        plugin.send(player, plugin.msg("type-cancel-hint"));            Bukkit.getScheduler().runTaskLater(plugin, () -> {
+                if (pending.remove(player.getUniqueId()) != null && player.isOnline()) {
+                    plugin.send(player, "<gray>Input expired.");
+                    reopen(player, entityUuid);
                 }
-            }
-        }, 20L * 60);
+            }, 20L * 60);
     }
 
     @EventHandler(priority = EventPriority.LOWEST)
@@ -2485,6 +2481,11 @@ public class StudioGUI implements Listener {
     }
 
     private void reopen(Player player, UUID entityUuid) {
+        // Reopens happen on timer expiry / cancel — the lock or permissions
+        // may have lapsed since the GUI closed, so gate again.
+        if (!plugin.canUse(player) || !plugin.permitted(player, StudioPermissions.USE)) {
+            return;
+        }
         Entity e = entityUuid == null ? null : Bukkit.getEntity(entityUuid);
         if (e != null && e.isValid() && !e.isDead()) {
             openDashboard(player, e);
@@ -2599,14 +2600,15 @@ public class StudioGUI implements Listener {
                     reopen(player, req.entityUuid());
                     return;
                 }
-                double v;
-                try {
-                    v = Double.parseDouble(text);
-                } catch (NumberFormatException e) {
-                    plugin.send(player, "<red>Expected a number.");
+                EntityProperty.ParseResult<Double> parsedAttr =
+                        com.entitystudio.property.Validators.parseDouble(text, 0,
+                                Double.MAX_VALUE, "value");
+                if (!parsedAttr.ok()) {
+                    plugin.send(player, "<red>" + parsedAttr.error());
                     pending.put(player.getUniqueId(), req);
                     return;
                 }
+                double v = parsedAttr.value();
                 double old = inst.getBaseValue();
                 inst.setBaseValue(v);
                 double done = v;
@@ -2848,6 +2850,12 @@ public class StudioGUI implements Listener {
                             : entity.getLocation().getYaw();
                     float pitch = parts.length > 4 ? Float.parseFloat(parts[4])
                             : entity.getLocation().getPitch();
+                    if (!Double.isFinite(x) || !Double.isFinite(y) || !Double.isFinite(z)
+                            || !Float.isFinite(yaw) || !Float.isFinite(pitch)) {
+                        plugin.send(player, "<red>Coordinates must be finite numbers.");
+                        pending.put(player.getUniqueId(), req);
+                        return;
+                    }
                     entity.teleport(new org.bukkit.Location(entity.getWorld(), x, y, z, yaw,
                             pitch));
                     plugin.send(player, "<gray>Teleported.");

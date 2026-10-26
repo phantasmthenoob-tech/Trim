@@ -77,7 +77,37 @@ tested.
   artifacts removed from `releases/`.
 - This audit file. Docs/README version labels corrected.
 
-## 7. Prioritized blockers for next stages
+## 7. Prompt-2 lifecycle review (2026-10-26) — correctness pass
+
+Traced: interact → session → GUI open → navigation → mutation →
+cancel/expire → quit → cleanup. Stale references, UUID handling, offline
+players, dead/unloaded entities, casts, slot indices, inventory sync, and
+post-permission-loss mutation were each checked at the code path.
+
+**Confirmed bugs fixed (minimal changes, 62/62 tests green):**
+1. Chat-typed attribute values accepted `NaN`/`Infinity`/negatives
+   (`Double.parseDouble` allows them) straight into `setBaseValue` — now
+   bounded `parseDouble(text, 0, MAX_VALUE)`; `range(double)` also rejects
+   infinities.
+2. Precise-teleport chat input accepted non-finite coordinates — now
+   finite-checked before `teleport()` (previously a server-side exception
+   with no player feedback).
+3. Chat-cancel and 60s-expiry reopens called `openDashboard` with no
+   lock/permission gate — both now route through a gated `reopen()`.
+4. New `Validators.parseFiniteDouble` with unit tests for NaN/±Infinity/
+   garbage/null.
+
+**Checked and deliberately left alone:** effect removal rebuilds the active
+list per click (no stale-index bug; undo restores the exact effect);
+equipment slot mapping verified against page layout; `Mob → LivingEntity`
+casts are type-safe; mirror deposit/withdraw re-resolve backing storage per
+click; concurrent opens fail closed via session validation.
+
+**Cannot reproduce headless (need the P1 live server):** actual in-game
+targeting mediation under vanilla AI pressure, cross-restart anchor/stash
+behavior, two-admin container races. No headless-safe fix attempted.
+
+## 8. Prioritized blockers for next stages
 
 1. **P1 — live-server verification.** Headless green is not proof on a
    server: shift-click entry, container mirror on llamas/horses/hoppers,

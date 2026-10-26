@@ -7,8 +7,8 @@ public final class Validators {
     }
 
     public static ValidationResult range(double value, double min, double max, String what) {
-        if (Double.isNaN(value)) {
-            return ValidationResult.fail(what + " must be a number.");
+        if (Double.isNaN(value) || Double.isInfinite(value)) {
+            return ValidationResult.fail(what + " must be a finite number.");
         }
         if (value < min || value > max) {
             return ValidationResult.fail(what + " must be between " + min + " and " + max + ".");
@@ -59,6 +59,21 @@ public final class Validators {
         }
         ValidationResult r = range(v, min, max, what);
         return r.ok() ? EntityProperty.ParseResult.ok(v) : EntityProperty.ParseResult.fail(r.message());
+    }
+
+    /** Parses any finite double (coordinates, angles). Rejects NaN/Infinity,
+     * which {@link Double#parseDouble} would otherwise accept. */
+    public static EntityProperty.ParseResult<Double> parseFiniteDouble(String input, String what) {
+        double v;
+        try {
+            v = Double.parseDouble(input.trim());
+        } catch (NumberFormatException | NullPointerException e) {
+            return EntityProperty.ParseResult.fail("Expected a number for " + what + ".");
+        }
+        if (!Double.isFinite(v)) {
+            return EntityProperty.ParseResult.fail(what + " must be a finite number.");
+        }
+        return EntityProperty.ParseResult.ok(v);
     }
 
     public static EntityProperty.ParseResult<Integer> parseInt(String input, int min, int max, String what) {

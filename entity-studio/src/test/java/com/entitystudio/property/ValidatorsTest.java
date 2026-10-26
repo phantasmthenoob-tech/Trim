@@ -34,6 +34,27 @@ class ValidatorsTest {
     }
 
     @Test
+    void nonFiniteDoublesRejected() {
+        assertFalse(Validators.range(Double.POSITIVE_INFINITY, 0, 10, "x").ok());
+        assertFalse(Validators.range(Double.NEGATIVE_INFINITY, 0, 10, "x").ok());
+        assertFalse(Validators.parseDouble("NaN", 0, 5, "x").ok());
+        assertFalse(Validators.parseDouble("Infinity", 0, Double.MAX_VALUE, "x").ok());
+        assertFalse(Validators.parseDouble("-5", 0, Double.MAX_VALUE, "x").ok());
+        assertTrue(Validators.parseDouble("0", 0, Double.MAX_VALUE, "x").ok());
+    }
+
+    @Test
+    void finiteDoubleParsing() {
+        assertEquals(1.5, Validators.parseFiniteDouble("1.5", "x").value());
+        assertEquals(-30.0, Validators.parseFiniteDouble("-30", "x").value());
+        assertFalse(Validators.parseFiniteDouble("NaN", "x").ok());
+        assertFalse(Validators.parseFiniteDouble("Infinity", "x").ok());
+        assertFalse(Validators.parseFiniteDouble("-Infinity", "x").ok());
+        assertFalse(Validators.parseFiniteDouble("abc", "x").ok());
+        assertFalse(Validators.parseFiniteDouble(null, "x").ok());
+    }
+
+    @Test
     void strings() {
         assertFalse(Validators.nonBlank("  ", "name").ok());
         assertTrue(Validators.nonBlank("Bob", "name").ok());
