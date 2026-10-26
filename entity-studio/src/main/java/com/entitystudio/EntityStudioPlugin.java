@@ -55,6 +55,7 @@ public class EntityStudioPlugin extends JavaPlugin implements SessionManager.Ent
         history.setMaxEntries(getConfig().getInt("settings.history.max-entries-per-player", 500));
         allegiance = new AllegianceService(this);
         snapshots = new SnapshotService(this);
+        snapshots.seedExamples();
         managedStore = new ManagedStore(this);
         stashes = new VirtualStashService(this);
         stashes.load();

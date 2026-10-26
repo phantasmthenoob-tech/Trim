@@ -48,8 +48,12 @@ real entity change. No `/data` memorization.
   before/after; newest-first bounded per-player undo with re-checked
   permissions; honest "cannot be undone" for the rest. Exact restore
   table in `docs/history.md`.
-- **Snapshots & presets** — save, restore, preview exact field changes, apply
-  properties/equipment/behavior selectively.
+- **Snapshots & presets** — save, restore, preview every field with a
+  status (change / unchanged / unsupported / invalid / unknown), apply
+  properties/attributes/effects/equipment/behavior selectively, validate
+  before mutating with best-effort rollback. Merge rules, schema, and the
+  3 seeded examples (`Armed Elite`, `Personal Guard`, `Stationary Display`)
+  are documented in `docs/snapshots.md`.
 - **Inventories** — player inventory + ender chest open **live** (viewing the
   hub needs `inventory.view`, opening the live views needs `inventory.edit` —
   the vanilla view has no undo, so view-only staff can't reach it) and

@@ -304,6 +304,42 @@ live-server verification gaps); README history bullet points at it.
 unload/restart, teleport-back across world unload, fights with other
 plugins over the same entity.
 
+## 14. Prompt-10 snapshots/presets review (2026-10-26) — schema, merge, rollback
+
+**Planning core extracted (pure, tested):** new `SnapshotPlan` owns schema
+decisions (v2 current, v1 legacy-warn, anything else refuses), per-field
+statuses (CHANGE/UNCHANGED/UNSUPPORTED/INVALID/UNKNOWN/INFO), sentinel
+recognition (`__empty__`, `__none__`), cross-type warnings, and a
+best-effort reverse-order `runAll` executor. `SnapshotService` plans every
+field before the first write and executes validated ops only.
+
+**Coverage extended:** new ATTRIBUTES and EFFECTS sections (base values;
+additive-only effect semantics — unlisted effects are never removed),
+behavior now captures/applies ALL managed fields (was: profile +
+friendly-fire only, silently dropping defend/trust/enemy/filter/anchor
+state), behavior apply runs `applyProfile` first so STATIONARY/GUARD presets
+set a real brain baseline before scalar overrides. Capture skips unreadable
+properties instead of poisoning files with `<unreadable>`.
+
+**Honesty:** unknown fields/sections reported, never applied; type mismatch
+warns but applies supported fields; midway failure reverts completed ops in
+reverse (tolerating revert failures) and reports rolled-back counts plus
+per-op errors — documented as best-effort, not transactional. Preview rows
+carry statuses; the preset list shows change/skip counts. `ApplyResult`
+replaces the opaque `int[]` at all three GUI call sites with warning lines.
+Section picker gains attributes/effects buttons. Three example presets seed
+on first run only (`Armed Elite`, `Personal Guard`, `Stationary Display`).
+
+**Tests:** `SnapshotPlanTest` (11: schema, planning, sentinels,
+cross-type, midway rollback order, revert-failure tolerance) +
+`SnapshotServiceTest` (2 new: behavior-capture YAML round-trip,
+default-completeness so restores can turn flags back off). 115/115 green
+headless on Paper 1.21.11 (javac + JUnit launcher; no Gradle dist in VM).
+**Docs:** new `docs/snapshots.md`; README + audit updated.
+**Live-server needs:** real equipment deserialization, anchor world loading,
+profile-brain application, seed-preset file creation, cross-type preset
+application on mobs.
+
 ## 8. Prioritized blockers for next stages
 
 1. **P1 — live-server verification.** Headless green is not proof on a

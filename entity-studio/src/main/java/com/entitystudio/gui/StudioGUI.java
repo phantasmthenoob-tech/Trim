@@ -1477,16 +1477,41 @@ public class StudioGUI implements Listener {
                 var preview = plugin.snapshots().previewPreset(name, entity,
                         EnumSet.allOf(
                                 com.entitystudio.snapshot.SnapshotService.Section.class));
-                if (preview.isEmpty()) {
+                long changes = preview.stream()
+                        .filter(p -> p.status() == com.entitystudio.snapshot.SnapshotPlan.Status.CHANGE)
+                        .count();
+                long blocked = preview.stream()
+                        .filter(p -> p.status()
+                                == com.entitystudio.snapshot.SnapshotPlan.Status.UNSUPPORTED
+                                || p.status()
+                                        == com.entitystudio.snapshot.SnapshotPlan.Status.INVALID
+                                || p.status()
+                                        == com.entitystudio.snapshot.SnapshotPlan.Status.UNKNOWN)
+                        .count();
+                if (changes == 0 && blocked == 0) {
                     lore.add("<green>Already matches — nothing would change");
                 } else {
-                    lore.add("<gray>Would change " + preview.size() + " field(s):");
-                    for (int m = 0; m < Math.min(4, preview.size()); m++) {
-                        var pe = preview.get(m);
+                    lore.add("<gray>Would change <white>" + changes + "<gray> field(s)"
+                            + (blocked == 0 ? "" : ", <red>" + blocked + " skipped"));
+                    int shown = 0;
+                    for (var pe : preview) {
+                        if (pe.status() != com.entitystudio.snapshot.SnapshotPlan.Status.CHANGE) {
+                            continue;
+                        }
+                        if (shown >= 3) {
+                            break;
+                        }
                         lore.add("<dark_gray>- <white>" + escape(trunc(pe.label(), 30)));
+                        shown++;
                     }
-                    if (preview.size() > 4) {
-                        lore.add("<dark_gray>…and " + (preview.size() - 4) + " more");
+                    long rest = changes - shown;
+                    if (rest > 0) {
+                        lore.add("<dark_gray>…and " + rest + " more");
+                    }
+                    if (blocked > 0) {
+                        lore.add("<red>" + blocked
+                                + " unsupported/invalid — right-click, Behavior page");
+                        lore.add("<dark_gray>preview lists every skipped field");
                     }
                 }
                 lore.add("<yellow>Click: apply ALL  <gray>|  <aqua>Right-click: apply menu");
@@ -1531,7 +1556,12 @@ public class StudioGUI implements Listener {
         fill(inv, 27);
         inv.setItem(10, named(Material.BOOK, "<aqua>Properties only",
                 "<gray>Preview this section first", "<yellow>Click to apply"));
-        inv.setItem(12, named(Material.IRON_CHESTPLATE, "<aqua>Equipment only",
+        inv.setItem(11, named(Material.IRON_CHESTPLATE, "<aqua>Equipment only",
+                "<yellow>Click to apply"));
+        inv.setItem(12, named(Material.NETHER_STAR, "<aqua>Attributes only",
+                "<yellow>Click to apply"));
+        inv.setItem(13, named(Material.POTION, "<aqua>Effects only",
+                "<gray>Listed effects are added,", "<gray>unlisted ones are left alone",
                 "<yellow>Click to apply"));
         inv.setItem(14, named(Material.LEAD, "<aqua>Behavior only",
                 "<yellow>Click to apply"));
@@ -2879,9 +2909,8 @@ public class StudioGUI implements Listener {
                 return;
             }
             String name = names.get(idx);
-            int[] res = plugin.snapshots().applySnapshot(name, target, player);
-            plugin.send(player, "<green>Snapshot '<white>" + escape(name) + "<green>' restored: "
-                    + res[0] + " changed, " + res[1] + " skipped.");
+            var res = plugin.snapshots().applySnapshot(name, target, player);
+            reportApply(player, "Snapshot", name, res);
             openSnapshots(player, entity, holder.pageNum);
         }
     }
@@ -2920,8 +2949,12 @@ public class StudioGUI implements Listener {
             var sections = switch (slot) {
                 case 10 -> EnumSet.of(
                         com.entitystudio.snapshot.SnapshotService.Section.PROPERTIES);
-                case 12 -> EnumSet.of(
+                case 11 -> EnumSet.of(
                         com.entitystudio.snapshot.SnapshotService.Section.EQUIPMENT);
+                case 12 -> EnumSet.of(
+                        com.entitystudio.snapshot.SnapshotService.Section.ATTRIBUTES);
+                case 13 -> EnumSet.of(
+                        com.entitystudio.snapshot.SnapshotService.Section.EFFECTS);
                 case 14 -> EnumSet.of(
                         com.entitystudio.snapshot.SnapshotService.Section.BEHAVIOR);
                 case 16 -> EnumSet.allOf(
@@ -2929,9 +2962,8 @@ public class StudioGUI implements Listener {
                 default -> null;
             };
             if (sections != null) {
-                int[] res = plugin.snapshots().applyPreset(preset, target, sections, player);
-                plugin.send(player, plugin.msg("preset-applied", "name", escape(preset))
-                        .replace("<changed>", String.valueOf(res[0])));
+                var res = plugin.snapshots().applyPreset(preset, target, sections, player);
+                reportApply(player, "Preset", preset, res);
                 openPresets(player, target);
             }
             return;
@@ -2985,10 +3017,9 @@ public class StudioGUI implements Listener {
             player.closeInventory();
             return;
         }
-        int[] res = plugin.snapshots().applyPreset(name, target,
+        var res = plugin.snapshots().applyPreset(name, target,
                 EnumSet.allOf(com.entitystudio.snapshot.SnapshotService.Section.class), player);
-        plugin.send(player, plugin.msg("preset-applied", "name", escape(name))
-                .replace("<changed>", String.valueOf(res[0])));
+        reportApply(player, "Preset", name, res);
         openPresets(player, entity, holder.pageNum);
     }
 
@@ -3130,6 +3161,26 @@ public class StudioGUI implements Listener {
         }
         entity.teleport(new org.bukkit.Location(w, before.getX(), before.getY(),
                 before.getZ(), before.getYaw(), before.getPitch()));
+    }
+
+    /** Reports a preset/snapshot apply: counts plus the first warnings.
+     * Rollback is stated honestly — best-effort, never transactional. */
+    private void reportApply(Player player, String kind, String name,
+            com.entitystudio.snapshot.SnapshotService.ApplyResult res) {
+        plugin.send(player, "<green>" + kind + " '<white>" + escape(name) + "<green>' applied: "
+                + "<white>" + res.changed() + "<green> changed, <white>" + res.skipped()
+                + "<green> skipped." + (res.rolledBack()
+                        ? " <red>Stopped midway — rolled back " + res.reverted() + "."
+                        : ""));
+        List<String> extra = new ArrayList<>(res.warnings());
+        extra.addAll(res.rollbackErrors());
+        for (int i = 0; i < Math.min(4, extra.size()); i++) {
+            plugin.send(player, "<yellow>! <gray>" + escape(trunc(extra.get(i), 120)));
+        }
+        if (extra.size() > 4) {
+            plugin.send(player, "<dark_gray>…and " + (extra.size() - 4)
+                    + " more (see console).");
+        }
     }
 
     private void recordSimple(Player player, Entity entity, String label, String oldV,
