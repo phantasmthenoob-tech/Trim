@@ -1,1 +1,1 @@
-rootProject.name = "Unbound"
+rootProject.name = "MineTranslate"

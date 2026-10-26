@@ -1,331 +1,70 @@
-# =====================================================================
-#  Unbound - Universal Enchantments
-#  Enchantment behavior is adapted to the item and the action being
-#  performed. If an enchantment has no meaningful relationship with an
-#  item, nothing happens.
+###############################################################################
+# MineTranslate - Google Translate for Minecraft (Paper 1.21.x)
 #
-#  NOTE ON VANILLA OVERLAP: several vanilla enchantments already apply
-#  to any item that carries them at *use time* (vanilla only enforces
-#  compatibility at the enchanting table / anvil). Unbound therefore
-#  complements vanilla instead of duplicating it. Effects below are
-#  documented with what they actually do.
-# =====================================================================
+# No API key needed. Translations use Google's free translate endpoint
+# (translate.googleapis.com, client=gtx) directly from your server.
+# If your host blocks outbound HTTP, translations will fail - check console.
+###############################################################################
 
-progression:
-  # When false, the vanilla enchanting table is blocked (progression
-  # control: Unbound enchantments should be administered or earned).
-  # Anvils are NOT affected.
-  enchanting-table:
-    enabled: false
-    deny-message: "&cThe enchanting table is disabled on this server."
+# Server default target language (used for /translate when only text given,
+# and as fallback for players who never ran /mylang).
+default-language: en
 
-debug:
-  # Master switch for console debug logging (logger fine level).
-  enabled: false
-  # Players may still toggle personal debug with /unbound debug if they
-  # have unbound.debug, regardless of this switch.
-  allow-player-toggle: true
-  # Show processing times in debug output.
-  show-timing: true
+# When true, players with no saved language auto-translate into this language
+# as soon as they run "/trchat on". When false they must pick one first.
+default-auto-translate: false
 
-limits:
-  max-entities-affected-per-action: 32
-  max-blocks-affected-per-action: 64
-  max-projectiles-created-per-action: 16
-  max-effect-chain-depth: 8
+# Max characters per single translation request. Longer text is split into
+# chunks of this size so Google never rejects it. 1500 is safe.
+max-text-length: 1500
 
-enchantments:
-  infinity:
-    enabled: true
-    max-level: 1
-    consumables:
-      enabled: true
-      # Restore (preserve) the consumed item after its normal effect ran:
-      # food, drinkable/splash potions, ender pearls, eggs, snowballs,
-      # XP bottles. Net effect: the item is never lost, never duplicated.
-      prevent-consumption: true
-      # Materials that are never restored (e.g. because vanilla leaves a
-      # desirable remainder: buckets -> empty bucket, potions -> bottle).
-      excluded-materials: [milk_bucket]
-    durability:
-      enabled: true
-      # Cancel ALL durability damage on items with Infinity.
-      # Takes precedence over Unbreaking (deterministic).
-      prevent-durability-loss: true
-    # Restore a totem of undying to its original hand one tick after it
-    # resurrects the holder (preserve, never duplicate). Requires Infinity
-    # on the totem itself.
-    restore-totems: true
-    blocks:
-      # Restore cheap placed blocks (dirt, cobblestone, cobwebs...) one tick
-      # after placing, while the placed block is still there. Valuable or
-      # container blocks are never restored (see the excluded list) - this
-      # must never be a duplication machine for wealth.
-      restore: true
-      excluded: [diamond_block, emerald_block, gold_block, iron_block,
-                 netherite_block, netherite_ingot, ancient_debris, beacon,
-                 conduit, ender_chest, enchanting_table, jukebox, lodestone,
-                 respawn_anchor, anvil, chipped_anvil, damaged_anvil,
-                 chest, trapped_chest, barrel, furnace, blast_furnace,
-                 smoker, dispenser, dropper, hopper, shulker_box,
-                 white_shulker_box, orange_shulker_box, magenta_shulker_box,
-                 light_blue_shulker_box, yellow_shulker_box, lime_shulker_box,
-                 pink_shulker_box, gray_shulker_box, light_gray_shulker_box,
-                 cyan_shulker_box, purple_shulker_box, blue_shulker_box,
-                 brown_shulker_box, green_shulker_box, red_shulker_box,
-                 black_shulker_box, spawner, bee_nest, beehive]
+# How many finished translations to keep in memory (per server, LRU).
+cache-size: 500
 
-  unbreaking:
-    enabled: true
-    max-level: 10
-    # Vanilla already skips durability damage with probability
-    # (60% + 4% per level) for ANY item carrying Unbreaking. This adds an
-    # EXTRA skip chance per damage event on top of that (0.0 = vanilla).
-    extra-skip-chance-per-level: 0.0
+# How long a cached translation stays valid (minutes). 0 = forever (until restart).
+cache-expire-minutes: 60
 
-  mending:
-    enabled: true
-    max-level: 1
-    # Unbound mending is universal: it scans held items, armor and
-    # inventory (in that order) for damaged items with Mending.
-    # Vanilla already repairs held item / armor; this covers the rest.
-    durability-per-xp: 2.0
-    # Prefer main hand, then off hand, then armor, then hotbar.
-    scan-hotbar: true
+# HTTP timeout per translation attempt (seconds).
+request-timeout-seconds: 10
 
-  efficiency:
-    enabled: true
-    max-level: 10
-    scaling: 1.0
-    # Vanilla handles faster mining for actual tools (its mining
-    # efficiency works on any effective tool). Unbound additionally
-    # grants faster *attacks* on melee weapons via the attack speed
-    # attribute while the weapon is held.
-    attack-speed-bonus-per-level: 0.2
+# Chat auto-translation behaviour for players who enabled /trchat:
+chat:
+  # Per-player translated delivery: players with auto-translate ON only see
+  # the translated message (original hidden from them, with original shown
+  # on hover). Everyone else sees the normal message.
+  # If your chat plugin conflicts, set this to "copy" so translators get an
+  # EXTRA translated line after the original instead.
+  mode: per-viewer # per-viewer | copy
+  # Prefix shown before translated chat, supports MiniMessage.
+  prefix: "<gray>[<aqua><source>➜<target></aqua>]</gray> "
+  # Show the original message on hover for translated chat.
+  hover-original: true
+  # Never auto-translate messages that start with these prefixes (commands
+  # shown in chat, private-message formatting, etc).
+  ignore-prefixes:
+    - "/"
+    - "[Staff]"
+  # Maximum chat message length to auto-translate (longer = sent untranslated).
+  max-length: 500
 
-  quick-charge:
-    enabled: true
-    max-level: 10
-    # Fraction removed from item cooldowns (ender pearls, shields, etc.)
-    # per level. Capped by quick-charge.max-cooldown-reduction.
-    use-time-reduction-per-level: 0.15
-    max-cooldown-reduction: 0.8
-    minimum-cooldown-ticks: 2
+# Translations of signs (/trsign) and books (/trbook).
+signs:
+  # How far away (blocks) a sign can be targeted.
+  max-distance: 6
+books:
+  # Maximum pages translated per /trbook run.
+  max-pages: 50
 
-  multishot:
-    enabled: true
-    max-level: 10
-    sword:
-      enabled: true
-      # Area attack around the victim: radius = base + radius-per-level
-      # * (level - 1). The direct target is hit by the original attack.
-      base-radius: 2.5
-      radius-per-level: 1.0
-      max-targets: 16
-      # Damage dealt to extra targets, as a fraction of the main hit
-      # (before armor).
-      damage-fraction: 1.0
-      # Push extra targets slightly away from the attacker.
-      knockback: true
-      knockback-strength: 0.4
-      # Skip tamed animals owned by the attacker and armor stands.
-      skip-own-pets: true
-      skip-armor-stands: true
-    # Bows: extra arrows are spawned in a spread on shoot. Crossbows keep
-    # vanilla Multishot. Tridents are excluded (they would duplicate the
-    # thrown trident item).
-    bow:
-      enabled: true
-      max-extra-arrows-per-level: 1
-      max-total-extra-arrows: 8
-      spread-degrees: 10.0
-
-  sharpness:
-    enabled: true
-    max-level: 10
-    # Damage bonus added to melee attacks. Vanilla adds
-    # 0.5 * level + 0.5 (i.e. 1.0 at level I, 3.0 at level V) to ANY melee
-    # attack with a Sharpness item (including items that should not accept
-    # it). Unbound removes vanilla's contribution and re-applies its own
-    # formula: bonus = base-bonus + bonus-per-level * (level - 1), so
-    # changing these values reshapes Sharpness without double counting.
-    # With the defaults (1.0 + 0.5 per extra level) this is exactly vanilla
-    # and the event is not touched at all.
-    base-bonus: 1.0
-    bonus-per-level: 0.5
-
-  power:
-    enabled: true
-    max-level: 10
-    # Bows and crossbows keep vanilla Power (it already applies to the
-    # arrows they shoot). For other projectiles Power adds flat damage
-    # per level on hit.
-    projectile-damage-per-level: 0.5
-    # Projectiles that receive the bonus (arrows/tridents excluded on
-    # purpose - vanilla already handles their enchant damage).
-    projectiles: [wind_charge, snowball, egg]
-
-  punch:
-    enabled: true
-    max-level: 10
-    # Arrows keep vanilla Punch. On melee attacks Punch now behaves like
-    # the Knockback enchantment (which vanilla never allows together
-    # with ranged items), pushing the victim away from the attacker.
-    melee:
-      enabled: true
-      velocity-per-level: 0.35
-    # Additional projectiles that receive punch knockback on hit.
-    projectiles: [wind_charge, snowball, egg]
-    projectile-velocity-per-level: 0.35
-
-  fortune:
-    enabled: true
-    max-level: 10
-    # Vanilla Fortune already multiplies ore drops for ANY breaking tool
-    # (it reads the held item). Unbound adds an extra, independent bonus
-    # roll on top of the vanilla result.
-    # chance = extra-chance-per-level * level (capped at 0.9) to
-    # duplicate each applicable drop stack once.
-    extra-chance-per-level: 0.25
-    # Blocks whose drops qualify. Ore tags are always included.
-    extra-blocks: []
-    # Drop materials that qualify for the bonus (raw resources, gems).
-    extra-drops: [raw_iron, raw_gold, raw_copper, coal, diamond, emerald,
-                  lapis_lazuli, redstone, nether_quartz, amethyst_shard,
-                  glowstone_dust, glow_berries, nether_wart, flint]
-
-  looting:
-    enabled: true
-    max-level: 10
-    # Vanilla Looting already boosts drops for ANY killing weapon. This
-    # adds an extra independent bonus: for each drop stack, chance =
-    # extra-chance-per-level * level (capped at 0.9) to duplicate it
-    # once. Rare drops can be boosted too via boost-rare-drops.
-    extra-chance-per-level: 0.25
-    boost-rare-drops: false
-
-  # =====================================================================
-  #  1.1 interpretations — the protection family, fire combos, sweeps and
-  #  projectile/melee cross-overs.
-  # =====================================================================
-
-  # The five protection enchantments, as timed veils (see veil tuning below).
-  protection:
-    enabled: true
-    max-level: 4
-  fire-protection:
-    enabled: true
-    max-level: 4
-  blast-protection:
-    enabled: true
-    max-level: 4
-  projectile-protection:
-    enabled: true
-    max-level: 4
-  feather-falling:
-    enabled: true
-    max-level: 4
-
-  # Shared veil tuning: the timed "extra armor piece" granted by the five
-  # protection enchantments while the item is held/worn. Duration scales
-  # with level (2s + 1s per level) and is capped here.
-  veil:
-    enabled: true
-    max-duration-seconds: 20.0
-
-  # Fire Aspect <-> Flame cross-over. Fire Aspect also ignites projectile
-  # hits; Flame also ignites melee hits. When BOTH enchantments contributed
-  # to a hit, the victim keeps burning until they enter water (capped at
-  # max-burn-seconds for safety).
-  fire-aspect:
-    enabled: true
-    max-level: 2
-  flame:
-    enabled: true
-    max-level: 1
-  ignite:
-    enabled: true
-    fire-aspect-on-projectiles: true
-    flame-on-melee: true
-    infinite-combo: true
-    max-burn-seconds: 20
-    projectiles: [snowball, egg, wind_charge]
-
-  # Sweeping Edge: real area sweep on melee hits AND projectile hits.
-  sweeping-edge:
-    enabled: true
-    max-level: 3
-    max-targets: 8
-    damage-fraction: 0.75
-    knockback: true
-    knockback-strength: 0.3
-
-  # Thorns on armor: instead of poking the attacker, the WEARER sweeps
-  # nearby enemies (armor version of Sweeping Edge).
-  thorns:
-    enabled: true
-    max-level: 3
-    max-targets: 4
-    damage-fraction: 0.5
-
-  # Silk Touch: killing a player yields their head as a bonus drop.
-  silk-touch:
-    enabled: true
-
-  # Luck of the Sea: Luck while the item is held, refreshed on held-item
-  # changes, gone shortly after switching away.
-  luck-of-the-sea:
-    enabled: true
-    max-level: 5
-    seconds: 5
-
-  # Channeling: any strike summons lightning (thunderstorm required by
-  # default, like vanilla).
-  channeling:
-    enabled: true
-    require-thundering: false
-
-  # Riptide: projectiles launch with riptide speed at reduced damage.
-  # Self-launch: RIGHT-CLICK REPEATEDLY on a melee/plain item to charge (each
-  # click adds a charge step of ~5 ticks, with escalating riptide sound +
-  # particle swirl; ~3 clicks reach full charge by default). Aim freely while
-  # charging to set the direction, stop clicking to launch. Power scales with
-  # charge. Tridents keep vanilla behavior.
-  riptide:
-    enabled: true
-    max-level: 3
-    projectile-damage-fraction: 0.30
-    melee-works-without-water: true
-    # Charge ticks for a full charge (each right-click adds ~5 ticks, so 12
-    # = about 3 clicks; items that repeat use packets charge continuously).
-    charge-ticks: 12
-    # Charge ticks below which a launch does NOT happen (default 10 = at
-    # least 2 clicks; no accidental single-click launches).
-    min-charge-ticks: 10
-    # Silence for this many ticks while charging = release -> launch.
-    input-gap-ticks: 8
-
-  # Impaling: strikes pierce a line of up to min(5, level) mobs.
-  impaling:
-    enabled: true
-    max-level: 5
-    max-targets: 5
-    damage-fraction: 0.8
-
-  # Breach: projectile hits pierce a fraction of the victim's armor.
-  breach:
-    enabled: true
-    max-level: 4
-    armor-fraction-per-level: 0.16
-
-  # Piercing: hits go through shields (shield disabled briefly, damage flows).
-  piercing:
-    enabled: true
-    max-level: 4
-    shield-break-ticks: 100
-
-  # Wind Burst: impacts burst into wind charges (mace smash on anything).
-  wind-burst:
-    enabled: true
-    max-level: 3
-    max-charges: 12
+messages:
+  prefix: "<dark_gray>[<gradient:#4ade80:#22d3ee>MineTranslate</gradient>]</dark_gray> "
+  no-permission: "<red>You don't have permission to do that."
+  players-only: "<red>Only players can use this command."
+  unknown-language: "<red>Unknown language '<input>'. Try /languages <input>"
+  translated-header: "<gray>Translated <aqua><source></aqua> ➜ <green><target></green>:</gray>"
+  usage-translate: "<yellow>Usage: /translate <target> <text...>  (e.g. /translate es Hello world)"
+  usage-mylang: "<yellow>Usage: /mylang <language>  (e.g. /mylang es)"
+  usage-trchat: "<yellow>Usage: /trchat <language|off|status>"
+  usage-trsign: "<yellow>Usage: look at a sign, then /trsign <target> [--apply]"
+  usage-trbook: "<yellow>Usage: hold a written book, then /trbook <target> [--copy]"
+  translating: "<gray>Translating…"
+  reloaded: "<green>MineTranslate configuration reloaded."

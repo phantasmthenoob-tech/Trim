@@ -1,42 +1,75 @@
-name: Unbound
+name: MineTranslate
 version: '${version}'
-main: com.unbound.core.UnboundPlugin
-api-version: '26.2'
-description: Universal enchantment mechanics for the Unbound SMP.
-authors: [Unbound SMP]
+main: com.minetranslate.MineTranslatePlugin
+api-version: '1.21'
+description: Google Translate in Minecraft - translate chat, signs and books.
+authors: [MineTranslate]
+website: https://github.com/phantasmthenoob-tech/Trim
 
 commands:
-  unbound:
-    description: Unbound enchantment administration.
-    usage: /unbound [reload|info|debug|enchant <player> <enchantment> <level> [force]]
-    permission: unbound.admin
-  enderchest:
-    description: Open your ender chest, or edit another player's (/enderchest edit <username>).
-    usage: /enderchest [edit <username>]
-  inspect:
-    description: Open a player's inventory as a live, editable view (online or offline).
-    usage: /inspect <username>
+  translate:
+    description: Translate text with Google Translate.
+    usage: /translate <target> <text...> OR /translate <source> <target> <text...> OR /translate <source>><target> <text...>
+    aliases: [tr, t]
+    permission: minetranslate.use
+  mylang:
+    description: Set your own translation language.
+    usage: /mylang <language> | /mylang
+    aliases: [setlang, tlang]
+    permission: minetranslate.setlang
+  trchat:
+    description: Auto-translate incoming chat into your language.
+    usage: /trchat <language|off|status>
+    aliases: [autotranslate, trtoggle]
+    permission: minetranslate.auto
+  languages:
+    description: List supported translation languages.
+    usage: /languages [search]
+    aliases: [langs, langlist]
+    permission: minetranslate.list
+  trsign:
+    description: Translate the sign you are looking at.
+    usage: /trsign <target> [--apply]
+    aliases: [signtranslate]
+    permission: minetranslate.sign
+  trbook:
+    description: Translate the written book in your hand.
+    usage: /trbook <target> [--copy]
+    aliases: [booktranslate]
+    permission: minetranslate.book
+  trgui:
+    description: Open the MineTranslate GUI.
+    usage: /trgui
+    aliases: [translategui, trmenu]
+    permission: minetranslate.use
+  translate-reload:
+    description: Reload the MineTranslate configuration.
+    usage: /translate-reload
+    aliases: [trreload]
+    permission: minetranslate.admin
 
 permissions:
-  unbound.admin:
-    description: Allows use of /unbound (reload, info, debug, enchant).
+  minetranslate.use:
+    description: Use /translate.
+    default: true
+  minetranslate.setlang:
+    description: Set own language with /mylang.
+    default: true
+  minetranslate.auto:
+    description: Toggle chat auto-translation with /trchat.
+    default: true
+  minetranslate.list:
+    description: List languages with /languages.
+    default: true
+  minetranslate.sign:
+    description: Translate signs with /trsign.
+    default: true
+  minetranslate.book:
+    description: Translate books with /trbook.
+    default: true
+  minetranslate.apply:
+    description: Write translations back onto signs / books.
     default: op
-    children:
-      unbound.reload: true
-      unbound.debug: true
-      unbound.enchant: true
-  unbound.reload:
-    description: Allows reloading the Unbound configuration.
-    default: op
-  unbound.debug:
-    description: Allows receiving and toggling Unbound debug output.
-    default: op
-  unbound.enchant:
-    description: Allows applying universal enchantments to any item.
-    default: op
-  unbound.inspect:
-    description: Allows sneak-right-click opening of another player's inventory.
-    default: op
-  unbound.enderchest:
-    description: Allows editing another player's ender chest via /enderchest edit.
+  minetranslate.admin:
+    description: Reload MineTranslate configuration.
     default: op

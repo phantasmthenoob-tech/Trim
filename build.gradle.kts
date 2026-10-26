@@ -2,13 +2,13 @@ plugins {
     `java-library`
 }
 
-group = "com.unbound"
-version = "1.3.2"
-description = "Universal enchantment mechanics for the Unbound SMP"
+group = "com.minetranslate"
+version = "1.0.0"
+description = "Google Translate for Minecraft - translate chat, signs and books on Paper 1.21"
 
 java {
     toolchain {
-        languageVersion = JavaLanguageVersion.of(25)
+        languageVersion = JavaLanguageVersion.of(21)
     }
 }
 
@@ -19,19 +19,15 @@ repositories {
     }
 }
 
-val paperApi = "io.papermc.paper:paper-api:26.2.build.129-stable"
+val paperApi = "io.papermc.paper:paper-api:1.21.1-R0.1-SNAPSHOT"
 
 dependencies {
     // Paper API is provided by the server at runtime.
     compileOnly(paperApi)
-    // Unit tests exercise Bukkit types (Material, ItemStack, Vector...) directly.
     testImplementation(paperApi)
-
     testImplementation(platform("org.junit:junit-bom:5.11.4"))
     testImplementation("org.junit.jupiter:junit-jupiter")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
-    // Needed to test config parsing against real YAML text.
-    testImplementation("org.yaml:snakeyaml:2.2")
 }
 
 java {
@@ -40,7 +36,7 @@ java {
 
 tasks.withType<JavaCompile>().configureEach {
     options.encoding = "UTF-8"
-    options.release = 25
+    options.release = 21
     options.compilerArgs.addAll(listOf("-Xlint:deprecation", "-Xlint:unchecked"))
 }
 
@@ -62,17 +58,16 @@ tasks.test {
 }
 
 tasks.jar {
-    archiveBaseName = "Unbound"
+    archiveBaseName = "MineTranslate"
 }
 
-// Keeps releases/Unbound-latest.jar in sync with every build, so the
-// repository always carries the current plugin jar alongside the source.
+// Keeps releases/MineTranslate-latest.jar in sync with every build.
 val releaseDir = layout.projectDirectory.dir("releases")
 val releaseJar = tasks.register<Copy>("releaseJar") {
     dependsOn(tasks.jar)
     from(tasks.jar.map { it.archiveFile })
     into(releaseDir)
-    rename { "Unbound-latest.jar" }
+    rename { "MineTranslate-latest.jar" }
 }
 
 tasks.build {
