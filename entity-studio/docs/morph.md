@@ -1,15 +1,19 @@
 # Mob Forms ("become the mob")
 
-`/entity morph` turns you into the mob you have selected (shift-right-click
-first, or `/entity morph <entity-uuid>`). `/entity unmorph` turns you back.
-There is also a **Morph** button on the dashboard.
+`/morph` opens the form picker: every supported mob as its vanilla
+spawn egg — click one and you become it, no selection needed. `/entity
+morph` still works from a shift-right-click selection (or `/entity morph
+<entity-uuid>`), `/entity unmorph` turns you back, and there is also a
+**Morph** button on the dashboard.
 
 ## What "become the mob" really means
 
-A morphed player **keeps their own player body on their own screen**. Paper
-gives plugins no way to change another client's player model without client
-mods — any plugin claiming full visual transformation without a resource
-pack or mod is lying. Everything else is real:
+A morphed player **keeps their own player model**. This is a hard Paper
+limit, not a missing feature: the client draws your body from your login,
+and no plugin packet can change it without client mods or a resource
+pack — any plugin claiming a literal model swap from plugins alone is
+lying. So instead of pretending, morph dresses you as the mob, and the
+costume is visible to everyone including yourself in F5:
 
 - **Health, damage, speed, size**: the mob's max health, attack damage,
   movement speed and body scale (`generic.scale`, so an enderman towers and
@@ -68,6 +72,19 @@ items are never touched — and unmorphing removes exactly what was given:
   resistance, night vision, water breathing) plus a hotbar row mixing
   the same buffs with throwable hex splashes. Used splashes resupply
   every ~6 seconds while morphed.
+
+## Costumes
+
+Each form wears its mob's outfit while morphed: mob heads (dragon,
+creeper, zombie, skeletons, piglin), dyed-leather "skin" suits (slime
+green, enderman black, sheep white, blaze orange...), elytra wings for
+the dragon, and hand props (totem for the evoker, TNT for the creeper,
+grass block for the enderman, nether star for the wither, wheat for the
+sheep, milk for the cow, a wand for the witch). Costume pieces only fill
+empty armor slots and an empty main hand — your gear is stashed, never
+deleted — and unmorphing puts it all back. Dying morphed drops your real
+gear plus the mob's loot table, never the costume. Ambient particles
+(ender pearls, blaze flames, ghast smoke, dragon breath) run while morphed.
 
 ## Rules and limits
 

@@ -76,6 +76,8 @@ public class EntityStudioPlugin extends JavaPlugin implements SessionManager.Ent
         getCommand("entitystudio").setTabCompleter(cmd);
         getCommand("entity").setExecutor(cmd);
         getCommand("entity").setTabCompleter(cmd);
+        getCommand("morph").setExecutor(cmd);
+        getCommand("morph").setTabCompleter(cmd);
 
         if (getConfig().getBoolean("settings.behavior.persist-managed-settings", true)) {
             managedStore.load();

@@ -18,6 +18,9 @@ commands:
   entity:
     description: Short alias for Entity Studio (activation + editor entry).
     usage: /entity [start|inspect|edit|undo|presets|snapshot|reload|version|menu|morph|unmorph]
+  morph:
+    description: Open the become-the-mob picker.
+    usage: /morph [uuid]
 
 permissions:
   entitystudio.use:
@@ -50,6 +53,9 @@ permissions:
   entitystudio.snapshot:
     description: Create and restore snapshots.
     default: op
+  entitystudio.morph:
+    description: Morph into mobs and use their abilities.
+    default: op
   entitystudio.undo:
     description: Undo eligible edits.
     default: op
@@ -58,9 +64,6 @@ permissions:
     default: op
   entitystudio.player.edit:
     description: Edit other players.
-    default: op
-  entitystudio.morph:
-    description: Morph into mobs and use their abilities.
     default: op
   entitystudio.admin:
     description: Administrative controls (reload, activation state).

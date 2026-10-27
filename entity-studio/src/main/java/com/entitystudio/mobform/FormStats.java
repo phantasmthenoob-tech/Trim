@@ -124,4 +124,11 @@ public final class FormStats {
     public static boolean isDetailed(String typeName) {
         return typeName != null && TABLE.containsKey(typeName.toUpperCase());
     }
+
+    /** Sorted names of every hand-written form, for menus and tests. */
+    public static java.util.List<String> detailedTypes() {
+        java.util.List<String> out = new java.util.ArrayList<>(TABLE.keySet());
+        java.util.Collections.sort(out);
+        return java.util.Collections.unmodifiableList(out);
+    }
 }

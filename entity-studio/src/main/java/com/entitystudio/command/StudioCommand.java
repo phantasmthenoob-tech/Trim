@@ -28,6 +28,12 @@ public class StudioCommand implements CommandExecutor, TabCompleter {
 
     @Override
     public boolean onCommand(CommandSender sender, Command cmd, String label, String[] args) {
+        if (cmd.getName().equalsIgnoreCase("morph")) {
+            if (args.length == 0) {
+                return morphMenu(sender);
+            }
+            return morph(sender, new String[] { "morph", args[0] });
+        }
         String sub = args.length == 0 ? "menu" : args[0].toLowerCase();
         return switch (sub) {
             case "start" -> start(sender);
@@ -319,6 +325,15 @@ public class StudioCommand implements CommandExecutor, TabCompleter {
             return true;
         }
         plugin.mobforms().morph(p, target.getType());
+        return true;
+    }
+
+    private boolean morphMenu(CommandSender sender) {
+        if (!(sender instanceof Player p)) {
+            sender.sendMessage("Only players can morph.");
+            return true;
+        }
+        plugin.mobforms().menu().open(p);
         return true;
     }
 

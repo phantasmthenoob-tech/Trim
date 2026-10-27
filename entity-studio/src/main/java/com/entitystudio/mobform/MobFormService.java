@@ -17,6 +17,7 @@ import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.scheduler.BukkitTask;
 import org.bukkit.event.player.PlayerRespawnEvent;
+import org.bukkit.NamespacedKey;
 import org.bukkit.event.entity.EntityDamageByEntityEvent;
 import org.bukkit.event.player.PlayerSwapHandItemsEvent;
 import org.bukkit.inventory.ItemStack;
@@ -53,10 +54,19 @@ public class MobFormService implements Listener {
     private final FormCooldowns cooldowns = new FormCooldowns();
     private final Map<UUID, List<ItemStack>> formKits = new ConcurrentHashMap<>();
     private final Map<UUID, BukkitTask> formTasks = new ConcurrentHashMap<>();
+    private final Map<UUID, MobFormCostumes.Prior> formCostumes = new ConcurrentHashMap<>();
+    private final NamespacedKey costumeMark;
+    private final MorphMenu menu;
     private final Random random = new Random();
 
     public MobFormService(EntityStudioPlugin plugin) {
         this.plugin = plugin;
+        this.costumeMark = new NamespacedKey(plugin, "morph_costume");
+        this.menu = new MorphMenu(plugin, this);
+    }
+
+    public MorphMenu menu() {
+        return menu;
     }
 
     public boolean isMorphed(UUID player) {
@@ -119,16 +129,25 @@ public class MobFormService implements Listener {
         if (!given.isEmpty()) {
             formKits.put(player.getUniqueId(), given);
         }
-        if (type == EntityType.WITCH) {
-            UUID id = player.getUniqueId();
-            formTasks.put(id, Bukkit.getScheduler().runTaskTimer(plugin, () -> {
-                Player p = Bukkit.getPlayer(id);
-                if (p == null || !p.isOnline() || formType(id) != EntityType.WITCH) {
-                    return;
-                }
-                MobFormKits.resupplySplash(p);
-            }, 120L, 120L));
+        MobFormCostumes.Prior prior =
+                MobFormCostumes.wear(player, type.name(), costumeMark);
+        if (prior != null) {
+            formCostumes.put(player.getUniqueId(), prior);
         }
+        UUID id = player.getUniqueId();
+        EntityType formType = type;
+        java.util.concurrent.atomic.AtomicInteger runs =
+                new java.util.concurrent.atomic.AtomicInteger();
+        formTasks.put(id, Bukkit.getScheduler().runTaskTimer(plugin, () -> {
+            Player p = Bukkit.getPlayer(id);
+            if (p == null || !p.isOnline() || formType(id) != formType) {
+                return;
+            }
+            MobFormFx.tick(p, formType);
+            if (formType == EntityType.WITCH && runs.incrementAndGet() % 6 == 0) {
+                MobFormKits.resupplySplash(p);
+            }
+        }, 20L, 20L));
         try {
             Sound ambient = Sound.valueOf(type.name() + "_AMBIENT");
             player.getWorld().playSound(player.getLocation(), ambient, 1.0f, 1.0f);
@@ -152,6 +171,7 @@ public class MobFormService implements Listener {
             return false;
         }
         takeKit(player);
+        removeCostume(player);
         cancelFormTask(player.getUniqueId());
         restore(player, f);
         if (!player.isOnGround()) {
@@ -239,6 +259,8 @@ public class MobFormService implements Listener {
         if (f == null) {
             return;
         }
+        MobFormCostumes.fixDrops(event.getDrops(),
+                formCostumes.remove(player.getUniqueId()), costumeMark);
         // Death already resets attributes, effects and flight; drops are the
         // one thing we add: the mob's own loot table, like the mob died.
         for (ItemStack loot : mobLoot(f.type(), player)) {
@@ -265,6 +287,7 @@ public class MobFormService implements Listener {
             return;
         }
         try {
+            removeCostume(player);
             restore(player, f);
         } catch (Exception e) {
             pendingRestore.put(player.getUniqueId(), f);
@@ -303,6 +326,11 @@ public class MobFormService implements Listener {
         return out;
     }
 
+    private void removeCostume(Player player) {
+        MobFormCostumes.Prior prior = formCostumes.remove(player.getUniqueId());
+        MobFormCostumes.restore(player, prior, costumeMark);
+    }
+
     private void takeKit(Player player) {
         List<ItemStack> given = formKits.remove(player.getUniqueId());
         MobFormKits.removeGiven(player, given);
@@ -336,6 +364,7 @@ public class MobFormService implements Listener {
             Player p = Bukkit.getPlayer(e.getKey());
             if (p != null && p.isOnline()) {
                 try {
+                    removeCostume(p);
                     restore(p, e.getValue());
                 } catch (Exception ignored) {
                 }
@@ -346,6 +375,7 @@ public class MobFormService implements Listener {
         }
         formTasks.clear();
         formKits.clear();
+        formCostumes.clear();
         forms.clear();
         pendingRestore.clear();
     }
