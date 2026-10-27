@@ -39,6 +39,8 @@ public class StudioCommand implements CommandExecutor, TabCompleter {
             case "reload" -> reload(sender);
             case "version" -> version(sender);
             case "menu", "gui" -> menu(sender);
+            case "morph" -> morph(sender, args);
+            case "unmorph" -> unmorph(sender);
             default -> {
                 sendUsage(sender);
                 yield true;
@@ -274,6 +276,67 @@ public class StudioCommand implements CommandExecutor, TabCompleter {
         return true;
     }
 
+
+    private boolean morph(CommandSender sender, String[] args) {
+        if (!(sender instanceof Player p)) {
+            sender.sendMessage("Only players can morph.");
+            return true;
+        }
+        if (!plugin.canUse(p) || !plugin.permitted(p, StudioPermissions.MORPH)) {
+            plugin.send(p, plugin.msg("no-permission"));
+            return true;
+        }
+        Entity target = null;
+        if (args.length >= 2) {
+            target = resolveUuid(args[1]);
+            if (target == null || !target.isValid() || target.isDead()) {
+                plugin.send(p, "<red>Unknown entity UUID.");
+                return true;
+            }
+        } else {
+            EditorSession session = plugin.sessions().get(p.getUniqueId());
+            if (session == null) {
+                plugin.send(p, "<gray>No entity selected. <yellow>Shift + right-click</yellow><gray> a mob first.");
+                return true;
+            }
+            SessionManager.Validation v = plugin.sessions().validate(plugin, session);
+            if (v != SessionManager.Validation.OK) {
+                plugin.sessions().close(p.getUniqueId());
+                plugin.send(p, describeValidation(v));
+                return true;
+            }
+            target = Bukkit.getEntity(session.entityUuid());
+            if (target == null || !target.isValid() || target.isDead()) {
+                plugin.send(p, plugin.msg("session-invalid"));
+                return true;
+            }
+        }
+        if (target instanceof Player) {
+            plugin.send(p, "<gray>That would just be you — pick a mob to become.");
+            return true;
+        }
+        if (!plugin.checkTargetAccess(p, target)) {
+            return true;
+        }
+        plugin.mobforms().morph(p, target.getType());
+        return true;
+    }
+
+    private boolean unmorph(CommandSender sender) {
+        if (!(sender instanceof Player p)) {
+            sender.sendMessage("Only players.");
+            return true;
+        }
+        if (!plugin.permitted(p, StudioPermissions.MORPH)) {
+            plugin.send(p, plugin.msg("no-permission"));
+            return true;
+        }
+        if (!plugin.mobforms().unmorph(p)) {
+            plugin.send(p, "<gray>You are not morphed.");
+        }
+        return true;
+    }
+
     private void sendUsage(CommandSender sender) {
         String[] lines = {
                 "<yellow>/entity start</yellow><gray> — activate (owner only)",
@@ -281,6 +344,7 @@ public class StudioCommand implements CommandExecutor, TabCompleter {
                 "<yellow>/entity edit <player></yellow><gray> — edit a player",
                 "<yellow>/entity undo|presets|snapshot|menu</yellow>",
                 "<yellow>/entity reload|version</yellow>",
+                "<yellow>/entity morph [uuid]|unmorph</yellow><gray> — become the mob</gray>",
         };
         for (String l : lines) {
             if (sender instanceof Player p) {
@@ -301,7 +365,7 @@ public class StudioCommand implements CommandExecutor, TabCompleter {
         }
         if (args.length == 1) {
             List<String> subs = List.of("start", "inspect", "edit", "undo", "presets",
-                    "snapshot", "reload", "version", "menu");
+                    "snapshot", "reload", "version", "menu", "morph", "unmorph");
             List<String> out = new ArrayList<>();
             for (String s : subs) {
                 if (s.startsWith(args[0].toLowerCase())) {

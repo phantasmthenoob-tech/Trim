@@ -23,8 +23,14 @@ import java.util.logging.Level;
  */
 public class VirtualStashService {
 
-    public static final int STASH_SIZE = 27;
-    private static final int SCHEMA = 1;
+    /**
+     * 36 slots: content window 0-26 plus hotbar-row 27-35, matching the
+     * unified inventory GUI's backing window (see UnifiedInvLayout).
+     */
+    public static final int STASH_SIZE = 36;
+    private static final int SCHEMA = 2;
+    private static final int LEGACY_SCHEMA = 1;
+    private static final int LEGACY_SIZE = 27;
 
     private final EntityStudioPlugin plugin;
     private final File file;
@@ -41,7 +47,8 @@ public class VirtualStashService {
             return;
         }
         YamlConfiguration yaml = YamlConfiguration.loadConfiguration(file);
-        if (yaml.getInt("schema-version", 1) != SCHEMA) {
+        int schema = yaml.getInt("schema-version", LEGACY_SCHEMA);
+        if (schema != SCHEMA && schema != LEGACY_SCHEMA) {
             plugin.getLogger().warning("stashes.yml schema mismatch; stashes will be re-saved.");
             return;
         }

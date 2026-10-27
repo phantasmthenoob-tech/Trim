@@ -27,6 +27,7 @@ import org.bukkit.entity.Entity;
 import org.bukkit.entity.LivingEntity;
 import org.bukkit.entity.Mob;
 import org.bukkit.entity.Player;
+import org.bukkit.entity.Steerable;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
@@ -35,13 +36,20 @@ import org.bukkit.event.inventory.InventoryCloseEvent;
 import org.bukkit.event.inventory.InventoryDragEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.inventory.EntityEquipment;
+import org.bukkit.scheduler.BukkitTask;
 import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.InventoryHolder;
+import org.bukkit.inventory.AbstractHorseInventory;
+import org.bukkit.inventory.ArmoredHorseInventory;
 import org.bukkit.inventory.ItemStack;
+import org.bukkit.inventory.LlamaInventory;
+import org.bukkit.inventory.PlayerInventory;
+import org.bukkit.inventory.Recipe;
 import org.bukkit.inventory.meta.ItemMeta;
 
 import java.util.ArrayList;
 import java.util.EnumSet;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -57,7 +65,7 @@ public class StudioGUI implements Listener {
     public enum Page {
         DASHBOARD, PROPERTIES, EQUIPMENT, ATTRIBUTES, EFFECTS, BEHAVIOR,
         TRADES, ITEM, HISTORY, SNAPSHOTS, PRESETS, CONFIRM, PLAYER_INV, CONTAINER,
-        ADVANCED,
+        ADVANCED, UNIFIED_INV,
     }
 
     /** Chat-input kinds for typed value entry. */
@@ -106,6 +114,16 @@ public class StudioGUI implements Listener {
     private final EntityStudioPlugin plugin;
     private final Map<UUID, PendingInput> pending = new ConcurrentHashMap<>();
     private final Map<String, ConfirmEntry> confirms = new ConcurrentHashMap<>();
+    /** Per-viewer 2x2 crafting grids for the unified inventory (transient). */
+    private final Map<UUID, ItemStack[]> craftGrids = new ConcurrentHashMap<>();
+    /** Auto-refresh tasks for open unified inventories, keyed by viewer. */
+    private final Map<UUID, BukkitTask> uniRefresh = new ConcurrentHashMap<>();
+    /** Open-time snapshots for bulk undo on close, keyed by viewer. */
+    private final Map<UUID, UniSnapshot> uniSnapshots = new ConcurrentHashMap<>();
+    /** Viewers who turned the unified auto-refresh off. */
+    private final Set<UUID> uniNoAutoRefresh = ConcurrentHashMap.newKeySet();
+    /** Viewers mid programmatic reopen: close must not commit. */
+    private final Set<UUID> uniKeep = ConcurrentHashMap.newKeySet();
 
     private static final int[] EQUIP_SLOTS = { 10, 11, 12, 13, 14, 15 };
     private static final String[] EQUIP_NAMES = { "Main hand", "Off hand", "Helmet",
@@ -196,6 +214,10 @@ public class StudioGUI implements Listener {
         col = dashButton(inv, col, caps.contains(Capability.ADVANCED_DATA), "ADVANCED",
                 Material.COMMAND_BLOCK, "<aqua><bold>Advanced data",
                 "<gray>Read-only PDC + data view");
+        inv.setItem(8, named(Material.NETHER_STAR, "<gold><bold>Morph",
+                "<gray>Become this mob",
+                "<gray>F = ability · Shift+F = second",
+                "<dark_gray>→ MORPH"));
         for (String warn : warnings(entity, caps)) {
             if (col > 25) {
                 break;
@@ -233,6 +255,14 @@ public class StudioGUI implements Listener {
             }
         }
         player.openInventory(inv);
+    }
+
+    private void morphFromDashboard(Player player, Entity entity) {
+        if (entity instanceof Player) {
+            plugin.send(player, "<gray>That would just be you — pick a mob to become.");
+            return;
+        }
+        plugin.mobforms().morph(player, entity.getType());
     }
 
     private int dashButton(Inventory inv, int slot, boolean enabled, String target,
@@ -927,6 +957,992 @@ public class StudioGUI implements Listener {
         openContainerMirror(player, entity, page);
     }
 
+    // ------------------------------------------------------- unified inventory
+    // Double-chest live editor: equipment row, saddle/body, 2x2 crafting with
+    // a real recipe result, full storage, and a hotbar mirror. Unlike the
+    // button-board pages the bottom row is storage, so nav lives at 42-44 and
+    // clicks/drags write straight through to the live entity. Every mutation
+    // re-validates the session; closing records one bulk undo entry.
+
+    private enum UniKind {
+        PLAYER, HOLDER, STASH
+    }
+
+    /** Open-time snapshot for bulk undo on close. Values are clones. */
+    private record UniSnapshot(UniKind kind, Map<String, ItemStack> values) {
+    }
+
+    private UniKind uniKind(Entity entity) {
+        if (entity instanceof Player) {
+            return UniKind.PLAYER;
+        }
+        if (entity instanceof InventoryHolder) {
+            return UniKind.HOLDER;
+        }
+        return UniKind.STASH;
+    }
+
+    private UniKind uniKindOf(GuiHolder holder) {
+        if (holder.data != null && holder.data.startsWith("U:")) {
+            try {
+                return UniKind.valueOf(holder.data.substring(2));
+            } catch (IllegalArgumentException e) {
+                return UniKind.STASH;
+            }
+        }
+        return UniKind.STASH;
+    }
+
+    /** Live native inventory for the kind, or null when unreadable. */
+    private Inventory uniNative(Entity entity, UniKind kind) {
+        if (kind == UniKind.HOLDER && entity instanceof InventoryHolder h) {
+            try {
+                return h.getInventory();
+            } catch (Exception e) {
+                return null;
+            }
+        }
+        if (kind == UniKind.STASH) {
+            return plugin.stashes().stashFor(entity.getUniqueId());
+        }
+        return null;
+    }
+
+    /** Horse-likes show saddle+armor up top, so content starts at slot 2. */
+    private int uniBias(Inventory nativeInv) {
+        return nativeInv instanceof AbstractHorseInventory ? 2 : 0;
+    }
+
+    private boolean uniLivingEq(Entity entity) {
+        return entity instanceof LivingEntity living && safeEquipment(living) != null;
+    }
+
+    /** Old slotStack index for a unified equip-row slot (0-5), or -1. */
+    private int uniOldIdx(int guiEquip) {
+        return switch (guiEquip) {
+            case 0 -> 2;
+            case 1 -> 3;
+            case 2 -> 4;
+            case 3 -> 5;
+            case 4 -> 0;
+            case 5 -> 1;
+            default -> -1;
+        };
+    }
+
+    private AbstractHorseInventory uniHorseInv(Entity entity) {
+        Inventory bi = uniNative(entity, uniKind(entity));
+        return bi instanceof AbstractHorseInventory h ? h : null;
+    }
+
+    private boolean uniSaddleSupported(Entity entity) {
+        return uniHorseInv(entity) != null || entity instanceof Steerable;
+    }
+
+    private boolean uniBodySupported(Entity entity) {
+        Inventory bi = uniNative(entity, uniKind(entity));
+        return bi instanceof ArmoredHorseInventory || bi instanceof LlamaInventory;
+    }
+
+    private boolean uniEquipSupported(Entity entity, int guiEquip) {
+        if (guiEquip >= 0 && guiEquip <= 5) {
+            return uniLivingEq(entity);
+        }
+        if (guiEquip == 6) {
+            return uniSaddleSupported(entity);
+        }
+        return guiEquip == 7 && uniBodySupported(entity);
+    }
+
+    private ItemStack uniEquipRead(Entity entity, int guiEquip) {
+        if (guiEquip >= 0 && guiEquip <= 5 && entity instanceof LivingEntity living) {
+            return slotStack(living, uniOldIdx(guiEquip));
+        }
+        if (guiEquip == 6) {
+            return uniSaddleRead(entity);
+        }
+        if (guiEquip == 7) {
+            return uniBodyRead(entity);
+        }
+        return null;
+    }
+
+    private void uniEquipWrite(Entity entity, int guiEquip, ItemStack stack) {
+        if (guiEquip >= 0 && guiEquip <= 5 && entity instanceof LivingEntity living) {
+            setSlot(living, uniOldIdx(guiEquip), stack);
+            return;
+        }
+        if (guiEquip == 6) {
+            uniSaddleWrite(entity, stack);
+            return;
+        }
+        if (guiEquip == 7) {
+            uniBodyWrite(entity, stack);
+        }
+    }
+
+    private ItemStack uniSaddleRead(Entity entity) {
+        AbstractHorseInventory h = uniHorseInv(entity);
+        if (h != null) {
+            return isAir(h.getSaddle()) ? null : h.getSaddle();
+        }
+        if (entity instanceof Steerable s) {
+            return s.hasSaddle() ? new ItemStack(Material.SADDLE) : null;
+        }
+        return null;
+    }
+
+    private void uniSaddleWrite(Entity entity, ItemStack stack) {
+        AbstractHorseInventory h = uniHorseInv(entity);
+        if (h != null) {
+            h.setSaddle(stack);
+            return;
+        }
+        if (entity instanceof Steerable s) {
+            s.setSaddle(!isAir(stack));
+        }
+    }
+
+    private ItemStack uniBodyRead(Entity entity) {
+        Inventory bi = uniNative(entity, uniKind(entity));
+        if (bi instanceof ArmoredHorseInventory a) {
+            return isAir(a.getArmor()) ? null : a.getArmor();
+        }
+        if (bi instanceof LlamaInventory l) {
+            return isAir(l.getDecor()) ? null : l.getDecor();
+        }
+        return null;
+    }
+
+    private void uniBodyWrite(Entity entity, ItemStack stack) {
+        Inventory bi = uniNative(entity, uniKind(entity));
+        if (bi instanceof ArmoredHorseInventory a) {
+            a.setArmor(stack);
+            return;
+        }
+        if (bi instanceof LlamaInventory l) {
+            l.setDecor(stack);
+        }
+    }
+
+    /** Live window read (backing offsets 0-35). Never a clone: callers clone. */
+    private ItemStack uniWindowRead(Entity entity, UniKind kind, int offset) {
+        if (offset < 0 || offset >= UnifiedInvLayout.CONTENT_PER_PAGE) {
+            return null;
+        }
+        if (kind == UniKind.PLAYER && entity instanceof Player p) {
+            int s = UnifiedInvLayout.playerStorageSlot(offset);
+            if (s < 0) {
+                return null;
+            }
+            ItemStack[] storage = p.getInventory().getStorageContents();
+            return s < storage.length && !isAir(storage[s]) ? storage[s] : null;
+        }
+        Inventory bi = uniNative(entity, kind);
+        if (bi == null) {
+            return null;
+        }
+        int slot = uniBias(bi) + offset;
+        if (slot < 0 || slot >= bi.getSize()) {
+            return null;
+        }
+        ItemStack s = bi.getItem(slot);
+        return isAir(s) ? null : s;
+    }
+
+    private void uniWindowWrite(Entity entity, UniKind kind, int offset, ItemStack stack) {
+        if (offset < 0 || offset >= UnifiedInvLayout.CONTENT_PER_PAGE) {
+            return;
+        }
+        ItemStack put = isAir(stack) ? null : stack;
+        if (kind == UniKind.PLAYER && entity instanceof Player p) {
+            int s = UnifiedInvLayout.playerStorageSlot(offset);
+            if (s < 0) {
+                return;
+            }
+            PlayerInventory inv = p.getInventory();
+            ItemStack[] storage = inv.getStorageContents();
+            if (s >= storage.length) {
+                return;
+            }
+            storage[s] = put;
+            inv.setStorageContents(storage);
+            return;
+        }
+        Inventory bi = uniNative(entity, kind);
+        if (bi == null) {
+            return;
+        }
+        int slot = uniBias(bi) + offset;
+        if (slot < 0 || slot >= bi.getSize()) {
+            return;
+        }
+        bi.setItem(slot, put);
+    }
+
+    private void uniStashSaved(Entity entity, UniKind kind) {
+        if (kind == UniKind.STASH) {
+            plugin.stashes().saveOne(entity.getUniqueId());
+        }
+    }
+
+    /** Snapshot key read (for diff/restore symmetry with the writers). */
+    private ItemStack uniKeyRead(Entity entity, UniKind kind, String key) {
+        if (key.startsWith("eq")) {
+            try {
+                return uniEquipRead(entity, Integer.parseInt(key.substring(2)));
+            } catch (NumberFormatException e) {
+                return null;
+            }
+        }
+        if (key.equals("saddle")) {
+            return uniSaddleRead(entity);
+        }
+        if (key.equals("body")) {
+            return uniBodyRead(entity);
+        }
+        if (key.startsWith("w")) {
+            try {
+                return uniWindowRead(entity, kind, Integer.parseInt(key.substring(1)));
+            } catch (NumberFormatException e) {
+                return null;
+            }
+        }
+        return null;
+    }
+
+    private UniSnapshot uniCapture(Entity entity, UniKind kind) {
+        Map<String, ItemStack> values = new HashMap<>();
+        for (int g = 0; g <= 7; g++) {
+            if (!uniEquipSupported(entity, g)) {
+                continue;
+            }
+            ItemStack s = uniEquipRead(entity, g);
+            if (!isAir(s)) {
+                values.put(g <= 5 ? "eq" + g : (g == 6 ? "saddle" : "body"), s.clone());
+            }
+        }
+        for (int o = 0; o < UnifiedInvLayout.CONTENT_PER_PAGE; o++) {
+            ItemStack s = uniWindowRead(entity, kind, o);
+            if (!isAir(s)) {
+                values.put("w" + o, s.clone());
+            }
+        }
+        return new UniSnapshot(kind, values);
+    }
+
+    private void uniClearMapped(Entity entity, UniKind kind) {
+        for (int g = 0; g <= 7; g++) {
+            if (uniEquipSupported(entity, g)) {
+                uniEquipWrite(entity, g, null);
+            }
+        }
+        for (int o = 0; o < UnifiedInvLayout.CONTENT_PER_PAGE; o++) {
+            uniWindowWrite(entity, kind, o, null);
+        }
+    }
+
+    private void uniApplySnapshot(Entity entity, UniSnapshot snap) {
+        uniClearMapped(entity, snap.kind());
+        for (Map.Entry<String, ItemStack> e : snap.values().entrySet()) {
+            ItemStack v = e.getValue() == null ? null : e.getValue().clone();
+            String k = e.getKey();
+            if (k.startsWith("eq")) {
+                try {
+                    uniEquipWrite(entity, Integer.parseInt(k.substring(2)), v);
+                } catch (NumberFormatException ignored) {
+                }
+            } else if (k.equals("saddle")) {
+                uniSaddleWrite(entity, v);
+            } else if (k.equals("body")) {
+                uniBodyWrite(entity, v);
+            } else if (k.startsWith("w")) {
+                try {
+                    uniWindowWrite(entity, snap.kind(), Integer.parseInt(k.substring(1)), v);
+                } catch (NumberFormatException ignored) {
+                }
+            }
+        }
+        uniStashSaved(entity, snap.kind());
+    }
+
+    private boolean uniSame(ItemStack a, ItemStack b) {
+        if (isAir(a) && isAir(b)) {
+            return true;
+        }
+        if (isAir(a) || isAir(b)) {
+            return false;
+        }
+        return a.getType() == b.getType() && a.getAmount() == b.getAmount();
+    }
+
+    private int uniDiffCount(Entity entity, UniSnapshot snap) {
+        java.util.ArrayList<String> keys = new java.util.ArrayList<>(snap.values().keySet());
+        for (int g = 0; g <= 7; g++) {
+            if (!uniEquipSupported(entity, g)) {
+                continue;
+            }
+            String k = g <= 5 ? "eq" + g : (g == 6 ? "saddle" : "body");
+            if (!keys.contains(k) && !isAir(uniKeyRead(entity, snap.kind(), k))) {
+                keys.add(k);
+            }
+        }
+        for (int o = 0; o < UnifiedInvLayout.CONTENT_PER_PAGE; o++) {
+            String k = "w" + o;
+            if (!keys.contains(k) && !isAir(uniKeyRead(entity, snap.kind(), k))) {
+                keys.add(k);
+            }
+        }
+        int changed = 0;
+        for (String k : keys) {
+            if (!uniSame(snap.values().get(k), uniKeyRead(entity, snap.kind(), k))) {
+                changed++;
+            }
+        }
+        return changed;
+    }
+
+    private ItemStack uniGlass(String nameMini, String... loreMini) {
+        ItemStack item = new ItemStack(Material.BLACK_STAINED_GLASS_PANE);
+        ItemMeta meta = item.getItemMeta();
+        if (nameMini == null) {
+            meta.displayName(Component.empty());
+        } else {
+            meta.displayName(plugin.mm().deserialize(nameMini));
+        }
+        java.util.ArrayList<Component> lore = new java.util.ArrayList<>();
+        for (String line : loreMini) {
+            lore.add(plugin.mm().deserialize(line));
+        }
+        meta.lore(lore);
+        item.setItemMeta(meta);
+        return item;
+    }
+
+    public void openUnified(Player viewer, Entity entity) {
+        if (!plugin.checkTargetAccess(viewer, entity)) {
+            return;
+        }
+        if (!plugin.permitted(viewer, StudioPermissions.INV_VIEW)) {
+            plugin.send(viewer, plugin.msg("no-permission"));
+            return;
+        }
+        UniKind kind = uniKind(entity);
+        if (kind != UniKind.PLAYER && uniNative(entity, kind) == null) {
+            plugin.send(viewer, "<red>Could not read that inventory.");
+            return;
+        }
+        plugin.sessions().setPage(viewer.getUniqueId(), "unified");
+        craftGrids.putIfAbsent(viewer.getUniqueId(), new ItemStack[4]);
+        uniSnapshots.putIfAbsent(viewer.getUniqueId(), uniCapture(entity, kind));
+        GuiHolder holder = new GuiHolder(Page.UNIFIED_INV, entity.getUniqueId(),
+                "U:" + kind.name(), 0);
+        Inventory inv = Bukkit.createInventory(holder, UnifiedInvLayout.SIZE,
+                plugin.mm().deserialize("<dark_gray>Inventory: "
+                        + escape(trunc(entity.getType().name().toLowerCase(), 18))));
+        holder.inv = inv;
+        renderUnified(viewer, holder);
+        viewer.openInventory(inv);
+        scheduleUniRefresh(viewer, holder);
+    }
+
+    /** Full in-place re-render from the live entity. Craft grid is preserved. */
+    private boolean renderUnified(Player viewer, GuiHolder holder) {
+        Entity entity = holder.entityUuid == null ? null : Bukkit.getEntity(holder.entityUuid);
+        if (entity == null || !entity.isValid() || entity.isDead()) {
+            return false;
+        }
+        Inventory inv = viewer.getOpenInventory().getTopInventory();
+        if (!(inv.getHolder() instanceof GuiHolder h) || h != holder) {
+            if (holder.inv != null && holder.inv.getHolder() == holder) {
+                inv = holder.inv;
+            } else {
+                return false;
+            }
+        }
+        UniKind kind = uniKindOf(holder);
+        boolean living = uniLivingEq(entity);
+        String[] eqNames = { "Helmet", "Chestplate", "Leggings", "Boots", "Main hand",
+                "Off hand" };
+        for (int g = 0; g <= 5; g++) {
+            ItemStack cur = living ? uniEquipRead(entity, g) : null;
+            if (isAir(cur)) {
+                inv.setItem(g, uniGlass(living ? "<dark_gray>Empty " + eqNames[g]
+                        : "<dark_gray>No equipment slot",
+                        living ? "<gray>Place an item, drag, or shift-click"
+                                : "<gray>This entity wears nothing"));
+            } else {
+                inv.setItem(g, cur.clone());
+            }
+        }
+        ItemStack saddle = uniSaddleSupported(entity) ? uniSaddleRead(entity) : null;
+        if (isAir(saddle)) {
+            boolean steer = uniHorseInv(entity) == null && entity instanceof Steerable;
+            inv.setItem(UnifiedInvLayout.SADDLE, uniGlass(
+                    uniSaddleSupported(entity) ? "<dark_gray>Empty saddle" : "<dark_gray>No saddle slot",
+                    uniSaddleSupported(entity)
+                            ? (steer ? "<gray>Click to saddle / unsaddle"
+                                    : "<gray>Place a saddle here")
+                            : "<gray>This entity cannot be saddled"));
+        } else if (uniHorseInv(entity) == null && entity instanceof Steerable) {
+            inv.setItem(UnifiedInvLayout.SADDLE, named(Material.SADDLE, "<aqua>Saddled",
+                    "<gray>Click to remove the saddle"));
+        } else {
+            inv.setItem(UnifiedInvLayout.SADDLE, saddle.clone());
+        }
+        ItemStack body = uniBodySupported(entity) ? uniBodyRead(entity) : null;
+        if (isAir(body)) {
+            inv.setItem(UnifiedInvLayout.BODY, uniGlass(
+                    uniBodySupported(entity) ? "<dark_gray>Empty body slot" : "<dark_gray>No body slot",
+                    uniBodySupported(entity) ? "<gray>Horse armor or llama carpet"
+                            : "<gray>Only horses and llamas wear body gear"));
+        } else {
+            inv.setItem(UnifiedInvLayout.BODY, body.clone());
+        }
+        ItemStack[] grid = craftGrids.get(viewer.getUniqueId());
+        if (grid == null) {
+            grid = new ItemStack[4];
+            craftGrids.put(viewer.getUniqueId(), grid);
+        }
+        for (int i = 0; i < 4; i++) {
+            inv.setItem(UnifiedInvLayout.CRAFT[i], isAir(grid[i]) ? uniGlass("<dark_gray>Crafting",
+                    "<gray>Ingredients — result computes live") : grid[i].clone());
+        }
+        ItemStack result = uniCraftPreview(entity, grid);
+        inv.setItem(UnifiedInvLayout.CRAFT_RESULT, isAir(result) ? uniGlass("<dark_gray>No recipe",
+                "<gray>Arrange 2x2 ingredients") : result.clone());
+        for (int o = 0; o < UnifiedInvLayout.CONTENT_PER_PAGE; o++) {
+            int gui = UnifiedInvLayout.guiSlotForOffset(o);
+            if (gui < 0) {
+                continue;
+            }
+            ItemStack cur = uniWindowRead(entity, kind, o);
+            inv.setItem(gui, isAir(cur) ? uniGlass(null) : cur.clone());
+        }
+        String kindLabel = switch (kind) {
+            case PLAYER -> "<aqua>LIVE player storage";
+            case HOLDER -> "<aqua>LIVE entity storage";
+            case STASH -> "<gold>Plugin stash (no vanilla inventory)";
+        };
+        inv.setItem(UnifiedInvLayout.INFO_A, named(Material.CHEST, kindLabel,
+                "<gray>" + escape(entity.getType().name().toLowerCase())
+                        + " · EID <white>#" + entity.getEntityId(),
+                "<dark_gray>UUID " + entity.getUniqueId().toString().substring(0, 8),
+                "<dark_gray>EIDs are assigned by the server and cannot change",
+                "<gray>Click / drag to move · shift-click to quick-move",
+                "<gray>Edits save on close · one bulk undo entry"));
+        boolean auto = !uniNoAutoRefresh.contains(viewer.getUniqueId());
+        inv.setItem(UnifiedInvLayout.INFO_B, named(auto ? Material.REDSTONE_TORCH : Material.GRAY_DYE,
+                "<yellow>Auto-refresh: " + (auto ? "<green>ON" : "<red>OFF"),
+                "<gray>Re-reads the entity every 2 seconds",
+                "<gray>Skips while you hold an item", "<yellow>Click to toggle"));
+        inv.setItem(UnifiedInvLayout.REFRESH, navRefresh());
+        inv.setItem(UnifiedInvLayout.BACK, navBack());
+        inv.setItem(UnifiedInvLayout.CLOSE, navClose());
+        return true;
+    }
+
+    private void uniHelp(Player viewer, Entity entity, UniKind kind) {
+        plugin.send(viewer, "<aqua>Unified inventory: "
+                + (kind == UniKind.STASH ? "plugin stash — the entity itself stores nothing."
+                        : "live storage — every move edits the real entity."));
+        plugin.send(viewer, "<gray>Left-click: pick up / place · right-click: half / single.");
+        plugin.send(viewer, "<gray>Drag across slots to distribute · shift-click to quick-move.");
+        plugin.send(viewer, "<gray>Crafting is a quick-craft grid; the result uses real recipes.");
+        plugin.send(viewer, "<gray>Closing records one undo entry for everything you changed.");
+    }
+
+    private void clickUnified(Player viewer, GuiHolder holder, InventoryClickEvent event) {
+        Entity entity = resolve(viewer, holder);
+        if (entity == null) {
+            return;
+        }
+        UniKind kind = uniKindOf(holder);
+        boolean top = event.getClickedInventory() != null
+                && event.getClickedInventory().equals(event.getView().getTopInventory());
+        if (!top) {
+            if (event.isShiftClick()) {
+                uniDeposit(viewer, entity, kind, holder, event);
+            } else {
+                // Your own inventory stays fully usable beside the editor.
+                event.setCancelled(false);
+            }
+            return;
+        }
+        int slot = event.getSlot();
+        if (slot == UnifiedInvLayout.INFO_A) {
+            uniHelp(viewer, entity, kind);
+            return;
+        }
+        if (slot == UnifiedInvLayout.INFO_B) {
+            UUID id = viewer.getUniqueId();
+            if (uniNoAutoRefresh.contains(id)) {
+                uniNoAutoRefresh.remove(id);
+            } else {
+                uniNoAutoRefresh.add(id);
+            }
+            renderUnified(viewer, holder);
+            return;
+        }
+        if (slot == UnifiedInvLayout.REFRESH) {
+            renderUnified(viewer, holder);
+            return;
+        }
+        if (slot == UnifiedInvLayout.BACK) {
+            openDashboard(viewer, entity);
+            return;
+        }
+        if (slot == UnifiedInvLayout.CLOSE) {
+            viewer.closeInventory();
+            return;
+        }
+        if (!plugin.permitted(viewer, StudioPermissions.INV_EDIT)) {
+            plugin.send(viewer, plugin.msg("no-permission"));
+            return;
+        }
+        int equip = UnifiedInvLayout.equipIndex(slot);
+        if (equip >= 0) {
+            uniEquipClick(viewer, entity, holder, equip, event.isRightClick());
+            return;
+        }
+        if (slot == UnifiedInvLayout.CRAFT_RESULT) {
+            uniCraftClick(viewer, entity, holder, event.isShiftClick(), event.isRightClick());
+            return;
+        }
+        int craft = UnifiedInvLayout.craftPos(slot);
+        if (craft >= 0) {
+            uniGridClick(viewer, holder, craft, event.isRightClick());
+            return;
+        }
+        int offset = UnifiedInvLayout.backingOffset(slot);
+        if (offset >= 0) {
+            if (event.isShiftClick()) {
+                uniTake(viewer, entity, kind, holder, offset);
+            } else {
+                uniMove(viewer, entity, kind, holder, offset, event.isRightClick());
+            }
+        }
+    }
+
+    /**
+     * Vanilla-style pickup/place/swap math. Returns {newSlot, newCursor}
+     * (nulls allowed), or null when nothing should change.
+     */
+    private ItemStack[] uniSwapMath(ItemStack slotItem, ItemStack cursor, boolean right) {
+        boolean slotAir = isAir(slotItem);
+        boolean cursorAir = isAir(cursor);
+        if (slotAir && cursorAir) {
+            return null;
+        }
+        if (cursorAir) {
+            int take = right ? (slotItem.getAmount() + 1) / 2 : slotItem.getAmount();
+            ItemStack toCursor = slotItem.clone();
+            toCursor.setAmount(take);
+            int left = slotItem.getAmount() - take;
+            ItemStack toSlot = null;
+            if (left > 0) {
+                toSlot = slotItem.clone();
+                toSlot.setAmount(left);
+            }
+            return new ItemStack[] { toSlot, toCursor };
+        }
+        if (slotAir) {
+            if (right && cursor.getAmount() > 1) {
+                ItemStack toSlot = cursor.clone();
+                toSlot.setAmount(1);
+                ItemStack toCursor = cursor.clone();
+                toCursor.setAmount(cursor.getAmount() - 1);
+                return new ItemStack[] { toSlot, toCursor };
+            }
+            return new ItemStack[] { cursor.clone(), null };
+        }
+        if (cursor.isSimilar(slotItem)) {
+            int max = cursor.getMaxStackSize();
+            if (right) {
+                if (slotItem.getAmount() >= max) {
+                    return null;
+                }
+                ItemStack toSlot = slotItem.clone();
+                toSlot.setAmount(slotItem.getAmount() + 1);
+                ItemStack toCursor = cursor.getAmount() == 1 ? null : cursor.clone();
+                if (toCursor != null) {
+                    toCursor.setAmount(cursor.getAmount() - 1);
+                }
+                return new ItemStack[] { toSlot, toCursor };
+            }
+            int room = max - slotItem.getAmount();
+            if (room <= 0) {
+                return null;
+            }
+            int move = Math.min(room, cursor.getAmount());
+            ItemStack toSlot = slotItem.clone();
+            toSlot.setAmount(slotItem.getAmount() + move);
+            int left = cursor.getAmount() - move;
+            ItemStack toCursor = null;
+            if (left > 0) {
+                toCursor = cursor.clone();
+                toCursor.setAmount(left);
+            }
+            return new ItemStack[] { toSlot, toCursor };
+        }
+        return new ItemStack[] { cursor.clone(), slotItem.clone() };
+    }
+
+    private String uniTypeOf(ItemStack s) {
+        return isAir(s) ? null : s.getType().name();
+    }
+
+    private int uniAmountOf(ItemStack s) {
+        return isAir(s) ? 0 : s.getAmount();
+    }
+
+    private void uniMove(Player viewer, Entity entity, UniKind kind, GuiHolder holder,
+            int offset, boolean right) {
+        ItemStack[] plan = uniSwapMath(uniWindowRead(entity, kind, offset),
+                viewer.getItemOnCursor(), right);
+        if (plan == null) {
+            return;
+        }
+        uniWindowWrite(entity, kind, offset, plan[0]);
+        viewer.setItemOnCursor(plan[1]);
+        uniStashSaved(entity, kind);
+        renderUnified(viewer, holder);
+    }
+
+    private void uniEquipClick(Player viewer, Entity entity, GuiHolder holder, int guiEquip,
+            boolean right) {
+        if (guiEquip == 6 && uniHorseInv(entity) == null && entity instanceof Steerable s) {
+            s.setSaddle(!s.hasSaddle());
+            plugin.send(viewer, s.hasSaddle() ? "<green>Saddle added." : "<gray>Saddle removed.");
+            renderUnified(viewer, holder);
+            return;
+        }
+        if (!uniEquipSupported(entity, guiEquip)) {
+            return;
+        }
+        ItemStack cursorBefore = viewer.getItemOnCursor();
+        ItemStack slotBefore = uniEquipRead(entity, guiEquip);
+        ItemStack[] plan = uniSwapMath(slotBefore, cursorBefore, right);
+        if (plan == null) {
+            return;
+        }
+        uniEquipWrite(entity, guiEquip, plan[0]);
+        viewer.setItemOnCursor(plan[1]);
+        ItemStack actual = uniEquipRead(entity, guiEquip);
+        if (!InventoryOps.slotMatches(uniTypeOf(plan[0]), uniAmountOf(plan[0]),
+                uniTypeOf(actual), uniAmountOf(actual))) {
+            uniEquipWrite(entity, guiEquip, slotBefore);
+            viewer.setItemOnCursor(cursorBefore);
+            plugin.send(viewer, "<yellow>That entity ignored the item — vanilla discards"
+                    + " equipment here. Nothing was lost.");
+        }
+        renderUnified(viewer, holder);
+    }
+
+    private void uniGridClick(Player viewer, GuiHolder holder, int craftPos, boolean right) {
+        ItemStack[] grid = craftGrids.get(viewer.getUniqueId());
+        if (grid == null) {
+            grid = new ItemStack[4];
+            craftGrids.put(viewer.getUniqueId(), grid);
+        }
+        ItemStack[] plan = uniSwapMath(grid[craftPos], viewer.getItemOnCursor(), right);
+        if (plan == null) {
+            return;
+        }
+        grid[craftPos] = isAir(plan[0]) ? null : plan[0];
+        viewer.setItemOnCursor(plan[1]);
+        renderUnified(viewer, holder);
+    }
+
+    /** Shift-click a storage slot: move the stack into the viewer's inventory. */
+    private void uniTake(Player viewer, Entity entity, UniKind kind, GuiHolder holder,
+            int offset) {
+        ItemStack cur = uniWindowRead(entity, kind, offset);
+        if (isAir(cur)) {
+            return;
+        }
+        ItemStack moving = cur.clone();
+        uniWindowWrite(entity, kind, offset, null);
+        java.util.Map<Integer, ItemStack> rest = viewer.getInventory().addItem(moving);
+        if (!rest.isEmpty()) {
+            uniWindowWrite(entity, kind, offset, rest.values().iterator().next());
+            plugin.send(viewer, "<yellow>Your inventory is full — kept the stack.");
+        } else {
+            plugin.send(viewer, "<green>Moved <white>" + moving.getType().name().toLowerCase()
+                    + " x" + moving.getAmount());
+        }
+        uniStashSaved(entity, kind);
+        renderUnified(viewer, holder);
+    }
+
+    /** Shift-click your own inventory: deposit into the first fitting slot. */
+    private void uniDeposit(Player viewer, Entity entity, UniKind kind, GuiHolder holder,
+            InventoryClickEvent event) {
+        if (!plugin.permitted(viewer, StudioPermissions.INV_EDIT)) {
+            plugin.send(viewer, plugin.msg("no-permission"));
+            return;
+        }
+        ItemStack offering = event.getCurrentItem();
+        if (isAir(offering)) {
+            return;
+        }
+        ItemStack moving = offering.clone();
+        int remaining = moving.getAmount();
+        for (int pass = 0; pass < 2 && remaining > 0; pass++) {
+            for (int o = 0; o < UnifiedInvLayout.CONTENT_PER_PAGE && remaining > 0; o++) {
+                ItemStack cur = uniWindowRead(entity, kind, o);
+                if (pass == 0) {
+                    if (isAir(cur) || !cur.isSimilar(moving)) {
+                        continue;
+                    }
+                    int room = cur.getMaxStackSize() - cur.getAmount();
+                    if (room <= 0) {
+                        continue;
+                    }
+                    int move = Math.min(room, remaining);
+                    ItemStack grown = cur.clone();
+                    grown.setAmount(cur.getAmount() + move);
+                    uniWindowWrite(entity, kind, o, grown);
+                    remaining -= move;
+                } else if (isAir(cur)) {
+                    ItemStack put = moving.clone();
+                    put.setAmount(remaining);
+                    uniWindowWrite(entity, kind, o, put);
+                    remaining = 0;
+                }
+            }
+        }
+        if (remaining <= 0) {
+            event.getClickedInventory().setItem(event.getSlot(), null);
+            plugin.send(viewer, "<green>Deposited <white>" + moving.getType().name().toLowerCase()
+                    + " x" + moving.getAmount());
+        } else {
+            ItemStack left = moving.clone();
+            left.setAmount(remaining);
+            event.getClickedInventory().setItem(event.getSlot(), left);
+            plugin.send(viewer, "<yellow>Deposited part — no room for x" + remaining + ".");
+        }
+        uniStashSaved(entity, kind);
+        renderUnified(viewer, holder);
+    }
+
+    private void dragUnified(Player viewer, GuiHolder holder, InventoryDragEvent event) {
+        event.setCancelled(true);
+        Entity entity = resolve(viewer, holder);
+        if (entity == null) {
+            return;
+        }
+        if (!plugin.permitted(viewer, StudioPermissions.INV_EDIT)) {
+            plugin.send(viewer, plugin.msg("no-permission"));
+            return;
+        }
+        UniKind kind = uniKindOf(holder);
+        int topSize = event.getView().getTopInventory().getSize();
+        for (int raw : event.getInventorySlots()) {
+            if (raw >= topSize) {
+                plugin.send(viewer, "<yellow>Drag inside one inventory at a time.");
+                return;
+            }
+            if (UnifiedInvLayout.equipIndex(raw) >= 0 || raw == UnifiedInvLayout.CRAFT_RESULT
+                    || raw == UnifiedInvLayout.REFRESH || raw == UnifiedInvLayout.BACK
+                    || raw == UnifiedInvLayout.CLOSE || raw == UnifiedInvLayout.INFO_A
+                    || raw == UnifiedInvLayout.INFO_B) {
+                plugin.send(viewer, "<yellow>Drag onto storage slots — click to equip.");
+                return;
+            }
+        }
+        ItemStack cursor = viewer.getItemOnCursor();
+        if (isAir(cursor)) {
+            return;
+        }
+        int max = cursor.getMaxStackSize();
+        int placed = 0;
+        for (java.util.Map.Entry<Integer, ItemStack> e : event.getNewItems().entrySet()) {
+            int raw = e.getKey();
+            if (raw >= topSize) {
+                continue;
+            }
+            ItemStack v = e.getValue();
+            if (isAir(v)) {
+                continue;
+            }
+            int amount = Math.min(v.getAmount(), Math.min(max, cursor.getMaxStackSize()));
+            ItemStack put = cursor.clone();
+            put.setAmount(amount);
+            int craft = UnifiedInvLayout.craftPos(raw);
+            int off = UnifiedInvLayout.backingOffset(raw);
+            if (craft >= 0) {
+                ItemStack[] grid = craftGrids.get(viewer.getUniqueId());
+                if (grid == null) {
+                    grid = new ItemStack[4];
+                    craftGrids.put(viewer.getUniqueId(), grid);
+                }
+                grid[craft] = put;
+                placed += amount;
+            } else if (off >= 0) {
+                uniWindowWrite(entity, kind, off, put);
+                placed += amount;
+            }
+        }
+        int rest = cursor.getAmount() - placed;
+        ItemStack left = null;
+        if (rest > 0) {
+            left = cursor.clone();
+            left.setAmount(rest);
+        }
+        viewer.setItemOnCursor(left);
+        viewer.updateInventory();
+        uniStashSaved(entity, kind);
+        renderUnified(viewer, holder);
+    }
+
+    private ItemStack uniCraftPreview(Entity entity, ItemStack[] grid) {
+        if (grid == null) {
+            return null;
+        }
+        ItemStack[] matrix = new ItemStack[9];
+        for (int i = 0; i < 4; i++) {
+            int m = UnifiedInvLayout.matrixSlot(i);
+            if (m >= 0 && !isAir(grid[i])) {
+                matrix[m] = grid[i].clone();
+            }
+        }
+        try {
+            Recipe recipe = Bukkit.getCraftingRecipe(matrix, entity.getWorld());
+            return recipe == null ? null : recipe.getResult();
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private void uniCraftClick(Player viewer, Entity entity, GuiHolder holder, boolean shift,
+            boolean right) {
+        if (right && !shift) {
+            plugin.send(viewer, "<gray>Left-click to take the result, shift-click to craft it"
+                    + " straight into your inventory.");
+            return;
+        }
+        ItemStack[] grid = craftGrids.get(viewer.getUniqueId());
+        ItemStack result = uniCraftPreview(entity, grid);
+        if (isAir(result) || grid == null) {
+            plugin.send(viewer, "<gray>No recipe matches that grid.");
+            return;
+        }
+        ItemStack giving = result.clone();
+        if (!shift) {
+            if (!isAir(viewer.getItemOnCursor())) {
+                plugin.send(viewer, "<yellow>Empty your cursor to take the result.");
+                return;
+            }
+            uniConsumeGrid(grid);
+            viewer.setItemOnCursor(giving);
+        } else {
+            java.util.Map<Integer, ItemStack> rest = viewer.getInventory().addItem(giving);
+            if (!rest.isEmpty()) {
+                plugin.send(viewer, "<yellow>Your inventory is full.");
+                return;
+            }
+            uniConsumeGrid(grid);
+        }
+        plugin.send(viewer, "<green>Crafted <white>" + giving.getType().name().toLowerCase()
+                + " x" + giving.getAmount());
+        renderUnified(viewer, holder);
+    }
+
+    private void uniConsumeGrid(ItemStack[] grid) {
+        for (int i = 0; i < grid.length; i++) {
+            if (isAir(grid[i])) {
+                continue;
+            }
+            int left = grid[i].getAmount() - 1;
+            if (left <= 0) {
+                grid[i] = null;
+            } else {
+                grid[i].setAmount(left);
+            }
+        }
+    }
+
+    private void scheduleUniRefresh(Player viewer, GuiHolder holder) {
+        cancelUniRefresh(viewer.getUniqueId());
+        UUID id = viewer.getUniqueId();
+        BukkitTask task = Bukkit.getScheduler().runTaskTimer(plugin, () -> {
+            Player p = Bukkit.getPlayer(id);
+            if (p == null || !p.isOnline()) {
+                cancelUniRefresh(id);
+                return;
+            }
+            if (!(p.getOpenInventory().getTopInventory().getHolder() instanceof GuiHolder h)
+                    || h != holder) {
+                cancelUniRefresh(id);
+                return;
+            }
+            if (uniNoAutoRefresh.contains(id)) {
+                return;
+            }
+            if (!isAir(p.getItemOnCursor())) {
+                return;
+            }
+            Entity e = Bukkit.getEntity(holder.entityUuid);
+            if (e == null || !e.isValid() || e.isDead()) {
+                cancelUniRefresh(id);
+                return;
+            }
+            renderUnified(p, holder);
+        }, 40L, 40L);
+        uniRefresh.put(id, task);
+    }
+
+    private void cancelUniRefresh(UUID viewer) {
+        BukkitTask task = uniRefresh.remove(viewer);
+        if (task != null) {
+            try {
+                task.cancel();
+            } catch (Exception ignored) {
+            }
+        }
+    }
+
+    private void closeUnified(Player viewer, GuiHolder holder) {
+        UUID id = viewer.getUniqueId();
+        cancelUniRefresh(id);
+        UniSnapshot snap = uniSnapshots.get(id);
+        ItemStack[] grid = craftGrids.remove(id);
+        boolean keep = uniKeep.remove(id);
+        if (grid != null) {
+            for (ItemStack s : grid) {
+                if (isAir(s)) {
+                    continue;
+                }
+                java.util.Map<Integer, ItemStack> left = viewer.getInventory().addItem(s.clone());
+                for (ItemStack o : left.values()) {
+                    viewer.getWorld().dropItemNaturally(viewer.getLocation(), o);
+                }
+            }
+        }
+        UniKind kind = uniKindOf(holder);
+        if (!keep && snap != null) {
+            Entity entity = Bukkit.getEntity(holder.entityUuid);
+            if (entity != null && entity.isValid() && !entity.isDead()
+                    && plugin.permitted(viewer, StudioPermissions.INV_EDIT)) {
+                int changed = uniDiffCount(entity, snap);
+                if (changed > 0) {
+                    final UniSnapshot fsnap = snap;
+                    recordSimple(viewer, entity,
+                            "Inventory edit (" + changed + " slot(s))", "before", "after",
+                            e2 -> uniApplySnapshot(e2, fsnap));
+                    plugin.send(viewer, "<green>Saved <white>" + changed
+                            + "<green> slot change(s) — undo available in History.");
+                }
+                uniStashSaved(entity, kind);
+            }
+        }
+        if (!keep) {
+            uniSnapshots.remove(id);
+        }
+    }
+
+
     // ---------------------------------------------------------------- behavior
 
     public void openBehavior(Player player, Entity entity) {
@@ -1556,6 +2572,10 @@ public class StudioGUI implements Listener {
             clickContainer(player, holder, event);
             return;
         }
+        if (holder.page == Page.UNIFIED_INV) {
+            clickUnified(player, holder, event);
+            return;
+        }
         if (event.getClickedInventory() == null
                 || !event.getClickedInventory().equals(event.getView().getTopInventory())) {
             return;
@@ -1626,7 +2646,12 @@ public class StudioGUI implements Listener {
     public void onDrag(InventoryDragEvent event) {
         // Our GUIs are button boards, not storage: never let drags park items
         // inside them, or players lose items into fake inventories on close.
-        if (event.getView().getTopInventory().getHolder() instanceof GuiHolder) {
+        if (event.getView().getTopInventory().getHolder() instanceof GuiHolder holder) {
+            if (holder.page == Page.UNIFIED_INV
+                    && event.getWhoClicked() instanceof Player player) {
+                dragUnified(player, holder, event);
+                return;
+            }
             event.setCancelled(true);
         }
     }
@@ -1639,9 +2664,10 @@ public class StudioGUI implements Listener {
                     + "<gray> · EID <white>#" + entity.getEntityId()
                     + "<gray> · UUID <yellow>" + entity.getUniqueId()
                     + "<gray> · At <white>" + loc(entity));
-            case 10 -> openEquipment(player, entity);
+            case 10 -> openUnified(player, entity);
             case 17 -> openAdvanced(player, entity, null, 0);
-            case 11 -> openPlayerInv(player, entity);
+            case 8 -> morphFromDashboard(player, entity);
+            case 11 -> openUnified(player, entity);
             case 12 -> openProperties(player, entity, null);
             case 13 -> openAttributes(player, entity);
             case 14 -> openEffects(player, entity);
@@ -3737,10 +4763,21 @@ public class StudioGUI implements Listener {
         pending.remove(event.getPlayer().getUniqueId());
         plugin.selector().exitInspect(event.getPlayer().getUniqueId());
         plugin.sessions().close(event.getPlayer().getUniqueId());
+        cancelUniRefresh(event.getPlayer().getUniqueId());
+        craftGrids.remove(event.getPlayer().getUniqueId());
+        uniSnapshots.remove(event.getPlayer().getUniqueId());
+        uniNoAutoRefresh.remove(event.getPlayer().getUniqueId());
+        uniKeep.remove(event.getPlayer().getUniqueId());
     }
 
     @EventHandler
     public void onClose(InventoryCloseEvent event) {
+        if (event.getView().getTopInventory().getHolder() instanceof GuiHolder holder
+                && holder.page == Page.UNIFIED_INV
+                && event.getPlayer() instanceof Player player) {
+            closeUnified(player, holder);
+            return;
+        }
         // Sessions persist across GUI closes; nothing to clean up per page.
     }
 
@@ -3840,6 +4877,7 @@ public class StudioGUI implements Listener {
             case TRADES -> { if (entity != null) openTrades(player, entity, holder.pageNum); }
             case PLAYER_INV -> { if (entity != null) openPlayerInv(player, entity); }
             case CONTAINER -> { if (entity != null) openContainerMirror(player, entity, ContainerPages.parsePage(holder.data)); }
+            case UNIFIED_INV -> { if (entity != null) { uniKeep.add(player.getUniqueId()); openUnified(player, entity); } }
             case ADVANCED -> { if (entity != null) openAdvanced(player, entity, holder.data, holder.pageNum); }
             case ITEM -> { if (entity != null) openItemEditor(player, entity, safeIdx(holder.data)); }
             case HISTORY -> openHistory(player, entity, holder.pageNum);

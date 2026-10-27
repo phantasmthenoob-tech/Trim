@@ -59,6 +59,15 @@ gradle test    # unit tests (response parsing, chunking, language codes)
 The plugin jar lands in `build/libs/MineTranslate-<version>.jar` and is copied to
 `releases/MineTranslate-latest.jar`.
 
+## Persisting build artifacts (optional)
+
+`tools/archil` is a small dev-only Node tool that keeps `releases/` and
+`entity-studio/releases/` on an
+[Archil](https://docs.archil.com/sdks/typescript) disk, so jars built in an
+ephemeral sandbox can be restored in a later run. It needs Node 22.19+ and an
+Archil API key in `ARCHIL_API_KEY`; it is not used by the plugin at runtime.
+See [tools/archil/README.md](tools/archil/README.md).
+
 ## Permissions
 
 `minetranslate.use`, `minetranslate.setlang`, `minetranslate.auto`,

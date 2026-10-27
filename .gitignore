@@ -12,3 +12,14 @@ classes/
 *.iml
 .vscode/
 .run/
+
+# Node tooling (tools/archil) — dependencies are disposable
+node_modules/
+
+# Local env files may hold an Archil API key; only the placeholder is tracked
+.env
+.env.*
+**/.env
+**/.env.*
+!.env.example
+!**/.env.example

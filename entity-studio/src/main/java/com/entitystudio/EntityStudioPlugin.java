@@ -1,5 +1,7 @@
 package com.entitystudio;
 
+import com.entitystudio.mobform.MobFormService;
+
 import com.entitystudio.behavior.AllegianceService;
 import com.entitystudio.command.StudioCommand;
 import com.entitystudio.gui.StudioGUI;
@@ -35,6 +37,7 @@ public class EntityStudioPlugin extends JavaPlugin implements SessionManager.Ent
     private ManagedStore managedStore;
     private VirtualStashService stashes;
     private StudioGUI gui;
+    private MobFormService mobforms;
     private EntitySelector selector;
     private YamlConfiguration messages;
     private final MiniMessage mm = MiniMessage.miniMessage();
@@ -60,10 +63,12 @@ public class EntityStudioPlugin extends JavaPlugin implements SessionManager.Ent
         stashes = new VirtualStashService(this);
         stashes.load();
         gui = new StudioGUI(this);
+        mobforms = new MobFormService(this);
         selector = new EntitySelector(this);
 
         getServer().getPluginManager().registerEvents(selector, this);
         getServer().getPluginManager().registerEvents(gui, this);
+        getServer().getPluginManager().registerEvents(mobforms, this);
         allegiance.start();
 
         StudioCommand cmd = new StudioCommand(this);
@@ -92,6 +97,9 @@ public class EntityStudioPlugin extends JavaPlugin implements SessionManager.Ent
     public void onDisable() {
         if (allegiance != null) {
             allegiance.stop();
+        }
+        if (mobforms != null) {
+            mobforms.shutdown();
         }
         if (managedStore != null
                 && getConfig().getBoolean("settings.behavior.persist-managed-settings", true)) {
@@ -232,6 +240,10 @@ public class EntityStudioPlugin extends JavaPlugin implements SessionManager.Ent
 
     public AllegianceService allegiance() {
         return allegiance;
+    }
+
+    public MobFormService mobforms() {
+        return mobforms;
     }
 
     public SnapshotService snapshots() {

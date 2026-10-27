@@ -13,11 +13,11 @@ commands:
   # own node check in StudioCommand are the single enforcement point.
   entitystudio:
     description: Entity Studio administration and editor entry points.
-    usage: /entitystudio [inspect|edit|undo|presets|snapshot|reload|version|start|menu]
+    usage: /entitystudio [inspect|edit|undo|presets|snapshot|reload|version|start|menu|morph|unmorph]
     aliases: [es, estudio]
   entity:
     description: Short alias for Entity Studio (activation + editor entry).
-    usage: /entity [start|inspect|edit|undo|presets|snapshot|reload|version|menu]
+    usage: /entity [start|inspect|edit|undo|presets|snapshot|reload|version|menu|morph|unmorph]
 
 permissions:
   entitystudio.use:
@@ -59,6 +59,9 @@ permissions:
   entitystudio.player.edit:
     description: Edit other players.
     default: op
+  entitystudio.morph:
+    description: Morph into mobs and use their abilities.
+    default: op
   entitystudio.admin:
     description: Administrative controls (reload, activation state).
     default: op
@@ -76,3 +79,4 @@ permissions:
       entitystudio.undo: true
       entitystudio.presets: true
       entitystudio.player.edit: true
+      entitystudio.morph: true

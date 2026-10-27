@@ -16,6 +16,7 @@ public final class StudioPermissions {
     public static final String UNDO = "entitystudio.undo";
     public static final String PRESETS = "entitystudio.presets";
     public static final String PLAYER_EDIT = "entitystudio.player.edit";
+    public static final String MORPH = "entitystudio.morph";
     public static final String ADMIN = "entitystudio.admin";
 
     private StudioPermissions() {
