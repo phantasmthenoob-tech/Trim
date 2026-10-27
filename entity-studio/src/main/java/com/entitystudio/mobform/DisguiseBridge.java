@@ -4,6 +4,8 @@ import com.entitystudio.EntityStudioPlugin;
 import me.libraryaddict.disguise.DisguiseAPI;
 import me.libraryaddict.disguise.disguisetypes.DisguiseType;
 import me.libraryaddict.disguise.disguisetypes.MobDisguise;
+import me.libraryaddict.disguise.disguisetypes.watchers.LivingWatcher;
+import me.libraryaddict.disguise.disguisetypes.watchers.SlimeWatcher;
 import org.bukkit.entity.EntityType;
 import org.bukkit.entity.Player;
 
@@ -47,7 +49,7 @@ final class DisguiseBridge {
      * Disguises the player as the mob type with self-view on.
      * Returns false when unavailable or unmapped; never throws.
      */
-    boolean disguise(Player player, EntityType type) {
+    boolean disguise(Player player, EntityType type, double scale) {
         if (!available || player == null || type == null) {
             return false;
         }
@@ -55,6 +57,20 @@ final class DisguiseBridge {
             DisguiseType disguiseType = DisguiseType.valueOf(type.name());
             MobDisguise disguise = new MobDisguise(disguiseType);
             disguise.setSelfDisguiseVisible(true);
+            try {
+                LivingWatcher watcher = disguise.getWatcher();
+                if (watcher != null) {
+                    if (type == EntityType.SLIME && watcher instanceof SlimeWatcher slime) {
+                        slime.setSize(Math.max(1, (int) Math.round(scale * 3)));
+                    }
+                    if (scale > 0) {
+                        watcher.setScale(scale);
+                    }
+                }
+            } catch (Exception e) {
+                plugin.getLogger().warning(
+                        "Disguise scale failed for " + type.name() + ": " + e.getMessage());
+            }
             DisguiseAPI.disguiseToAll(player, disguise);
             return true;
         } catch (Exception e) {

@@ -96,7 +96,14 @@ versions for Paper 1.21.11:
 
 EntityStudio soft-depends on LibsDisguises: install it and morphs use
 real disguises automatically; without it everything still works in
-costume mode. No config needed either way.
+costume mode. No config needed either way. Disguises inherit the form's
+body scale (enderman towers, chicken is tiny, slime goes size 3), matching
+the stats in the ability table.
+
+Self-view lag is inherent: the disguise follows you via position packets,
+so in F5 it trails a beat behind — noticeable over a tunnel connection.
+Nothing code-side can make it frame-perfect; if it lags seconds rather
+than a heartbeat, that is connection latency, not the disguise.
 
 ## Rules and limits
 

@@ -131,7 +131,7 @@ public class MobFormService implements Listener {
         if (!given.isEmpty()) {
             formKits.put(player.getUniqueId(), given);
         }
-        if (!disguises.disguise(player, type)) {
+        if (!disguises.disguise(player, type, FormStats.forType(type.name()).scale())) {
             MobFormCostumes.Prior prior =
                     MobFormCostumes.wear(player, type.name(), costumeMark);
             if (prior != null) {
