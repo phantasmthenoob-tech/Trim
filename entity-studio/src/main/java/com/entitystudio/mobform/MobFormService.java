@@ -56,12 +56,14 @@ public class MobFormService implements Listener {
     private final Map<UUID, BukkitTask> formTasks = new ConcurrentHashMap<>();
     private final Map<UUID, MobFormCostumes.Prior> formCostumes = new ConcurrentHashMap<>();
     private final NamespacedKey costumeMark;
+    private final DisguiseBridge disguises;
     private final MorphMenu menu;
     private final Random random = new Random();
 
     public MobFormService(EntityStudioPlugin plugin) {
         this.plugin = plugin;
         this.costumeMark = new NamespacedKey(plugin, "morph_costume");
+        this.disguises = new DisguiseBridge(plugin);
         this.menu = new MorphMenu(plugin, this);
     }
 
@@ -129,10 +131,12 @@ public class MobFormService implements Listener {
         if (!given.isEmpty()) {
             formKits.put(player.getUniqueId(), given);
         }
-        MobFormCostumes.Prior prior =
-                MobFormCostumes.wear(player, type.name(), costumeMark);
-        if (prior != null) {
-            formCostumes.put(player.getUniqueId(), prior);
+        if (!disguises.disguise(player, type)) {
+            MobFormCostumes.Prior prior =
+                    MobFormCostumes.wear(player, type.name(), costumeMark);
+            if (prior != null) {
+                formCostumes.put(player.getUniqueId(), prior);
+            }
         }
         UUID id = player.getUniqueId();
         EntityType formType = type;
@@ -171,6 +175,7 @@ public class MobFormService implements Listener {
             return false;
         }
         takeKit(player);
+        disguises.undisguise(player);
         removeCostume(player);
         cancelFormTask(player.getUniqueId());
         restore(player, f);
@@ -259,6 +264,7 @@ public class MobFormService implements Listener {
         if (f == null) {
             return;
         }
+        disguises.undisguise(player);
         MobFormCostumes.fixDrops(event.getDrops(),
                 formCostumes.remove(player.getUniqueId()), costumeMark);
         // Death already resets attributes, effects and flight; drops are the
@@ -287,6 +293,7 @@ public class MobFormService implements Listener {
             return;
         }
         try {
+            disguises.undisguise(player);
             removeCostume(player);
             restore(player, f);
         } catch (Exception e) {
@@ -364,6 +371,7 @@ public class MobFormService implements Listener {
             Player p = Bukkit.getPlayer(e.getKey());
             if (p != null && p.isOnline()) {
                 try {
+                    disguises.undisguise(p);
                     removeCostume(p);
                     restore(p, e.getValue());
                 } catch (Exception ignored) {

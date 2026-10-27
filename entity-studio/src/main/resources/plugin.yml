@@ -3,6 +3,7 @@ version: '${version}'
 main: com.entitystudio.EntityStudioPlugin
 api-version: '1.21'
 description: Visual entity editor for Minecraft Java 1.21 ( Paper plugin).
+softdepend: [LibsDisguises]
 authors: [EntityStudio]
 website: https://github.com/phantasmthenoob-tech/Trim
 

@@ -8,12 +8,11 @@ morph` still works from a shift-right-click selection (or `/entity morph
 
 ## What "become the mob" really means
 
-A morphed player **keeps their own player model**. This is a hard Paper
-limit, not a missing feature: the client draws your body from your login,
-and no plugin packet can change it without client mods or a resource
-pack — any plugin claiming a literal model swap from plugins alone is
-lying. So instead of pretending, morph dresses you as the mob, and the
-costume is visible to everyone including yourself in F5:
+**With LibsDisguises installed, morphing shows the real mob.**
+Everyone else sees the mob, and you see it yourself in F5 through the
+self-disguise view (it can lag a tick behind you — normal for a
+server-side disguise). Without it, morph dresses you as the mob instead,
+and the costume is visible to everyone including yourself in F5:
 
 - **Health, damage, speed, size**: the mob's max health, attack damage,
   movement speed and body scale (`generic.scale`, so an enderman towers and
@@ -85,6 +84,19 @@ empty armor slots and an empty main hand — your gear is stashed, never
 deleted — and unmorphing puts it all back. Dying morphed drops your real
 gear plus the mob's loot table, never the costume. Ambient particles
 (ender pearls, blaze flames, ghast smoke, dragon breath) run while morphed.
+
+## Disguise setup (optional, recommended)
+
+Real mob visuals need two extra plugins on the server, pinned to these
+versions for Paper 1.21.11:
+
+- **LibsDisguises 11.0.14** (free edition) — the disguise engine.
+- **PacketEvents 2.11.1** — its networking dependency (ProtocolLib is
+  *not* needed on this version line).
+
+EntityStudio soft-depends on LibsDisguises: install it and morphs use
+real disguises automatically; without it everything still works in
+costume mode. No config needed either way.
 
 ## Rules and limits
 

@@ -17,6 +17,9 @@ repositories {
     maven("https://repo.papermc.io/repository/maven-public/") {
         name = "papermc"
     }
+    maven("https://mvn.lib.co.nz/public/") {
+        name = "libsdisguises"
+    }
 }
 
 // Pinned Paper API for the 1.21.11 server target (verified 2026-10-26:
@@ -29,6 +32,10 @@ val paperApi = "io.papermc.paper:paper-api:1.21.11-R0.1-SNAPSHOT"
 dependencies {
     // Paper API is provided by the server at runtime.
     compileOnly(paperApi)
+    // LibsDisguises is optional at runtime (softdepend): real mob visuals
+    // when installed, costume fallback otherwise. Pinned to the 1.21.11
+    // line (11.0.14); match the installed build to this version.
+    compileOnly("me.libraryaddict.disguises:libsdisguises:11.0.14")
     testImplementation(paperApi)
     testImplementation(platform("org.junit:junit-bom:5.11.4"))
     testImplementation("org.junit.jupiter:junit-jupiter")
