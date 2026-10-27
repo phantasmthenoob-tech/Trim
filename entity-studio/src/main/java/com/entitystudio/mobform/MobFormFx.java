@@ -24,8 +24,10 @@ final class MobFormFx {
                     0.4, 0.3, 0.4, 0.02);
             case WITCH -> player.getWorld().spawnParticle(Particle.WITCH, at, 2,
                     0.4, 0.5, 0.4, 0.02);
+            // NB: DRAGON_BREATH requires extra data on this API line and throws
+            // from the scheduler task, so the dragon gets reverse portals instead.
             case ENDER_DRAGON -> player.getWorld().spawnParticle(
-                    Particle.DRAGON_BREATH, at, 4, 0.6, 0.6, 0.6, 0.02);
+                    Particle.REVERSE_PORTAL, at, 4, 0.6, 0.6, 0.6, 0.02);
             case CREEPER -> player.getWorld().spawnParticle(Particle.LARGE_SMOKE,
                     player.getLocation().clone().add(0, 0.5, 0), 1,
                     0.2, 0.2, 0.2, 0.01);

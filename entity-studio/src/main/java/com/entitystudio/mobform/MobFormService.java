@@ -147,7 +147,12 @@ public class MobFormService implements Listener {
             if (p == null || !p.isOnline() || formType(id) != formType) {
                 return;
             }
-            MobFormFx.tick(p, formType);
+            try {
+                MobFormFx.tick(p, formType);
+            } catch (Exception e) {
+                plugin.getLogger().warning(
+                        "Form FX failed for " + formType + ": " + e.getMessage());
+            }
             if (formType == EntityType.WITCH && runs.incrementAndGet() % 6 == 0) {
                 MobFormKits.resupplySplash(p);
             }
